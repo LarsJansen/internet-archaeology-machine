@@ -38,20 +38,26 @@ async function clickYear(window: Window, year: number) {
   await new Promise((resolve) => setTimeout(resolve, 0));
 }
 
-function capturePayload(year = 2002): CapturesResponse {
+async function replaceYear(window: Window, year: number) {
+  const button = window.document.querySelector(`[data-replace-year="${year}"]`);
+  button?.dispatchEvent(new window.Event("click", { bubbles: true, cancelable: true }));
+  await new Promise((resolve) => setTimeout(resolve, 0));
+}
+
+function capturePayload(year = 2002, domain = "example.com"): CapturesResponse {
   return {
-    domain: "example.com",
+    domain,
     source: "internet-archive-cdx",
     limitation: `At most one capture for ${year}.`,
     captures: [
       {
         timestamp: `${year}0120142510`,
-        originalUrl: "http://example.com/",
+        originalUrl: `http://${domain}/`,
         statusCode: "200",
         mimeType: "text/html",
         digest: "DIGEST",
         length: 1792,
-        replayUrl: `https://web.archive.org/web/${year}0120142510/http://example.com/`,
+        replayUrl: `https://web.archive.org/web/${year}0120142510/http://${domain}/`,
       },
     ],
   };
@@ -131,6 +137,143 @@ describe("on-demand year explorer", () => {
     expect(link.href).toBe(payload.captures[0].replayUrl);
     expect(link.rel).toContain("noreferrer");
     expect(window.document.querySelector("#selected-capture")?.hasAttribute("hidden")).toBe(false);
+  });
+
+  it("retains two verified captures for side-by-side comparison", async () => {
+    const window = createPage();
+    const fakeFetch: typeof fetch = async (input) => {
+      const year = Number(new URL(String(input), "https://iam.test").searchParams.get("year"));
+      return Response.json(capturePayload(year));
+    };
+    initSearch(window.document as unknown as Document, fakeFetch);
+    (window.document.querySelector("#domain") as unknown as HTMLInputElement).value = "example.com";
+    await submit(window);
+
+    await clickYear(window, 2002);
+    await clickYear(window, 2003);
+
+    const captureItems = window.document.querySelectorAll("#capture-list li");
+    const links = window.document.querySelectorAll("#capture-list a");
+    expect(captureItems).toHaveLength(2);
+    expect(links[0].textContent).toContain("2002");
+    expect(links[1].textContent).toContain("2003");
+    expect((links[0] as unknown as HTMLAnchorElement).rel).toContain("noreferrer");
+    expect((links[1] as unknown as HTMLAnchorElement).rel).toContain("noreferrer");
+  });
+
+  it("does not silently displace either capture when a third year is verified", async () => {
+    const window = createPage();
+    let requestCount = 0;
+    const fakeFetch: typeof fetch = async (input) => {
+      requestCount += 1;
+      const year = Number(new URL(String(input), "https://iam.test").searchParams.get("year"));
+      return Response.json(capturePayload(year));
+    };
+    initSearch(window.document as unknown as Document, fakeFetch);
+    (window.document.querySelector("#domain") as unknown as HTMLInputElement).value = "example.com";
+    await submit(window);
+
+    await clickYear(window, 2002);
+    await clickYear(window, 2003);
+    await clickYear(window, 2004);
+
+    expect(requestCount).toBe(3);
+    expect(window.document.querySelectorAll("#capture-list li")).toHaveLength(2);
+    expect(window.document.querySelector('[data-replace-year="2002"]')).not.toBeNull();
+    expect(window.document.querySelector('[data-replace-year="2003"]')).not.toBeNull();
+    expect(window.document.querySelector('[data-replace-year="2004"]')).toBeNull();
+    expect(window.document.querySelector("#status")?.textContent).toContain("Replace either year");
+  });
+
+  it("replaces either comparison capture and reuses verified years without refetching", async () => {
+    const window = createPage();
+    let requestCount = 0;
+    const fakeFetch: typeof fetch = async (input) => {
+      requestCount += 1;
+      const year = Number(new URL(String(input), "https://iam.test").searchParams.get("year"));
+      return Response.json(capturePayload(year));
+    };
+    initSearch(window.document as unknown as Document, fakeFetch);
+    (window.document.querySelector("#domain") as unknown as HTMLInputElement).value = "example.com";
+    await submit(window);
+    await clickYear(window, 2002);
+    await clickYear(window, 2003);
+
+    await replaceYear(window, 2002);
+    expect(window.document.activeElement?.getAttribute("data-year")).toBe("2002");
+    await clickYear(window, 2004);
+
+    expect(requestCount).toBe(3);
+    expect(window.document.querySelectorAll("#capture-list li")).toHaveLength(2);
+    expect(window.document.querySelector('[data-replace-year="2003"]')).not.toBeNull();
+    expect(window.document.querySelector('[data-replace-year="2004"]')).not.toBeNull();
+
+    await replaceYear(window, 2004);
+    await clickYear(window, 2002);
+
+    expect(requestCount).toBe(3);
+    expect(window.document.querySelector('[data-replace-year="2002"]')).not.toBeNull();
+    expect(window.document.querySelector('[data-replace-year="2003"]')).not.toBeNull();
+  });
+
+  it("keeps replacement controls unavailable until an outstanding year check finishes", async () => {
+    const window = createPage();
+    let requestCount = 0;
+    let resolvePending!: (response: Response) => void;
+    const fakeFetch: typeof fetch = async (input) => {
+      requestCount += 1;
+      const year = Number(new URL(String(input), "https://iam.test").searchParams.get("year"));
+      if (requestCount === 3) {
+        return new Promise((resolve) => (resolvePending = resolve));
+      }
+      return Response.json(capturePayload(year));
+    };
+    initSearch(window.document as unknown as Document, fakeFetch);
+    (window.document.querySelector("#domain") as unknown as HTMLInputElement).value = "example.com";
+    await submit(window);
+    await clickYear(window, 2002);
+    await clickYear(window, 2003);
+
+    await clickYear(window, 2004);
+    const replaceButton = window.document.querySelector(
+      '[data-replace-year="2002"]',
+    ) as unknown as HTMLButtonElement;
+
+    expect(replaceButton.disabled).toBe(true);
+    replaceButton.click();
+    expect(window.document.querySelector('[data-replace-year="2002"]')).not.toBeNull();
+
+    resolvePending(Response.json(capturePayload(2004)));
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    expect(replaceButton.disabled).toBe(false);
+    replaceButton.click();
+    expect(window.document.activeElement?.getAttribute("data-year")).toBe("2002");
+  });
+
+  it("clears compared captures and checked-year cache when the domain changes", async () => {
+    const window = createPage();
+    let requestCount = 0;
+    const fakeFetch: typeof fetch = async (input) => {
+      requestCount += 1;
+      const url = new URL(String(input), "https://iam.test");
+      const year = Number(url.searchParams.get("year"));
+      const domain = url.searchParams.get("domain") ?? "";
+      return Response.json(capturePayload(year, domain));
+    };
+    initSearch(window.document as unknown as Document, fakeFetch);
+    const input = window.document.querySelector("#domain") as unknown as HTMLInputElement;
+    input.value = "example.com";
+    await submit(window);
+    await clickYear(window, 2002);
+
+    input.value = "mozilla.org";
+    await submit(window);
+
+    expect(window.document.querySelector("#capture-list")?.children).toHaveLength(0);
+    expect(window.document.querySelector("#selected-capture")?.hasAttribute("hidden")).toBe(true);
+    await clickYear(window, 2002);
+    expect(requestCount).toBe(2);
+    expect(window.document.querySelector("#capture-heading")?.textContent).toContain("mozilla.org");
   });
 
   it("marks a checked year with no returned capture", async () => {

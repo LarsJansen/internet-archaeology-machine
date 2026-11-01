@@ -2,11 +2,12 @@
 
 Internet Archaeology Machine (IAM) is a free, open-source experiment for exploring surviving homepage captures in the Internet Archive. It is a curiosity tool, not a SaaS product and not an archive of its own.
 
-The current application is a small Vite/TypeScript interface and Cloudflare Worker with an on-demand historical year explorer. It checks only the year a visitor selects.
+The current application is a small Vite/TypeScript interface and Cloudflare Worker with an on-demand historical year explorer. It checks only the year a visitor selects and can compare two verified archive entry points.
 
 ## What works
 
 - A responsive, keyboard-friendly year explorer with not-checked, loading, empty, success, and upstream-error states.
+- A two-capture metadata comparison with safe replay links and replaceable, session-cached year selections.
 - `GET /api/health` for a local/deployed health check.
 - `GET /api/captures?domain=example.com` for a bounded Internet Archive CDX query.
 - `GET /api/captures?domain=example.com&year=2002` for at most one capture from one selected year.
@@ -14,7 +15,7 @@ The current application is a small Vite/TypeScript interface and Cloudflare Work
 - Explicit handling for rate limits, timeouts, malformed archive data, and general upstream failures.
 - Deterministic Vitest coverage using a clearly labelled real-shape fixture. Fixture records are never returned by the live API.
 
-The year selector does not claim that every displayed year is archived. Years remain labelled “Not checked” until selected, and the browser never scans or fans out across decades.
+The year selector does not claim that every displayed year is archived. Years remain labelled “Not checked” until selected, and the browser never scans or fans out across decades. The comparison covers verified archive metadata and replay entry points, not visual page contents.
 
 ## Local setup
 

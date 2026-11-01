@@ -188,7 +188,8 @@ footer {
 
 .capture-list {
   display: grid;
-  gap: 0;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 1rem;
   margin: 1.5rem 0 0;
   padding: 0;
   list-style: none;
@@ -257,13 +258,22 @@ footer {
   border-top: 1px solid var(--line);
 }
 
-.capture-list li {
+.capture-card {
   display: flex;
-  align-items: baseline;
-  justify-content: space-between;
-  gap: 1rem;
-  padding-block: 1rem;
-  border-top: 1px solid var(--line);
+  align-items: flex-start;
+  flex-direction: column;
+  gap: 0.75rem;
+  min-width: 0;
+  padding: 1rem;
+  border: 1px solid var(--line);
+  background: #0b1713;
+}
+
+.capture-card h4 {
+  margin: 0;
+  color: var(--signal);
+  font-family: "SFMono-Regular", Consolas, "Liberation Mono", monospace;
+  font-size: 1.4rem;
 }
 
 .capture-list a {
@@ -274,6 +284,21 @@ footer {
   color: var(--ink-muted);
   font-family: "SFMono-Regular", Consolas, "Liberation Mono", monospace;
   font-size: 0.8rem;
+}
+
+.replace-capture {
+  min-height: 2.6rem;
+  margin-top: auto;
+  padding-inline: 0.8rem;
+  border-color: var(--line);
+  color: #e9f2ed;
+  background: transparent;
+  font-size: 0.85rem;
+}
+
+.replace-capture:hover {
+  border-color: var(--signal);
+  background: #11231c;
 }
 
 .caveat {
@@ -306,9 +331,8 @@ footer p {
     grid-template-columns: 1fr;
   }
 
-  .capture-list li {
-    align-items: flex-start;
-    flex-direction: column;
+  .capture-list {
+    grid-template-columns: 1fr;
   }
 }
 
