@@ -68,6 +68,32 @@ describe("Worker API", () => {
     expect(body.captures).toEqual([]);
   });
 
+  it("returns at most one capture for a valid selected year", async () => {
+    const fakeFetch: typeof fetch = async () => Response.json(fixture);
+
+    const response = await handleRequest(request("/api/captures?domain=example.com&year=2002"), fakeFetch);
+    const body = (await response.json()) as CapturesResponse;
+
+    expect(response.status).toBe(200);
+    expect(body.captures).toHaveLength(1);
+    expect(body.captures[0].timestamp.startsWith("2002")).toBe(true);
+    expect(body.limitation).toContain("2002");
+  });
+
+  it.each(["not-a-year", "1995", String(new Date().getUTCFullYear() + 1)])(
+    "rejects invalid selected year %s before contacting the archive",
+    async (year) => {
+      const failFetch: typeof fetch = async () => {
+        throw new Error("archive fetch must not run");
+      };
+
+      const response = await handleRequest(request(`/api/captures?domain=example.com&year=${year}`), failFetch);
+
+      expect(response.status).toBe(400);
+      await expect(response.json()).resolves.toMatchObject({ error: { code: "INVALID_YEAR" } });
+    },
+  );
+
   it.each([
     [429, 503, "ARCHIVE_RATE_LIMITED"],
     [503, 502, "ARCHIVE_UNAVAILABLE"],

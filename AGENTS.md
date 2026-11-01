@@ -3,7 +3,7 @@
 ## Scope
 
 - Read `README.md`, `docs/ARCHITECTURE.md`, and `docs/ROADMAP.md` before changing product behavior.
-- Keep changes within the requested phase. Phase 0 must not grow timeline, comparison, sharing, persistence, accounts, analytics, or bulk crawling features.
+- Keep changes within the requested phase. Do not add comparison, sharing, persistence, accounts, analytics, or bulk crawling without an explicit task.
 - Prefer the smallest implementation that keeps the archive boundary honest and testable.
 
 ## Required checks

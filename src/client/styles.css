@@ -94,6 +94,11 @@ h2 {
   letter-spacing: -0.025em;
 }
 
+h3 {
+  margin: 0;
+  font-size: 1rem;
+}
+
 .lede {
   max-width: 46rem;
   color: var(--ink-muted);
@@ -187,6 +192,69 @@ footer {
   margin: 1.5rem 0 0;
   padding: 0;
   list-style: none;
+}
+
+.timeline-note {
+  max-width: 46rem;
+  color: var(--ink-muted);
+  line-height: 1.55;
+}
+
+.year-list {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(8.5rem, 1fr));
+  gap: 0.65rem;
+  margin: 1.5rem 0 0;
+  padding: 0;
+  list-style: none;
+}
+
+.year-list button {
+  display: flex;
+  align-items: flex-start;
+  flex-direction: column;
+  width: 100%;
+  min-height: 4.5rem;
+  padding: 0.75rem;
+  color: #e9f2ed;
+  background: #0b1713;
+  text-align: left;
+}
+
+.year-list button:hover:not(:disabled) {
+  border-color: var(--signal);
+  background: #11231c;
+}
+
+.year-list button[data-state="found"] {
+  border-color: var(--signal);
+}
+
+.year-list button[data-state="empty"] {
+  border-color: #718078;
+}
+
+.year-list button[data-state="error"] {
+  border-color: #f2ba65;
+}
+
+.year-label {
+  font-family: "SFMono-Regular", Consolas, "Liberation Mono", monospace;
+  font-size: 1.05rem;
+  font-weight: 800;
+}
+
+.year-state {
+  margin-top: 0.35rem;
+  color: var(--ink-muted);
+  font-size: 0.75rem;
+  font-weight: 500;
+}
+
+.selected-capture {
+  margin-top: 2rem;
+  padding-top: 1.5rem;
+  border-top: 1px solid var(--line);
 }
 
 .capture-list li {

@@ -26,7 +26,7 @@ function malformed(message: string): never {
   throw new ArchiveProviderError("MALFORMED_ARCHIVE_RESPONSE", message);
 }
 
-export function parseCdxPayload(payload: unknown): Capture[] {
+export function parseCdxPayload(payload: unknown, maxCaptures = MAX_CAPTURES): Capture[] {
   if (Array.isArray(payload) && payload.length === 0) {
     return [];
   }
@@ -49,7 +49,7 @@ export function parseCdxPayload(payload: unknown): Capture[] {
     return malformed("The archive response omitted required metadata fields.");
   }
 
-  return payload.slice(1, MAX_CAPTURES + 1).map((row) => {
+  return payload.slice(1, maxCaptures + 1).map((row) => {
     if (!Array.isArray(row) || row.length < header.length) {
       return malformed("The archive returned a malformed capture row.");
     }
@@ -106,15 +106,18 @@ export function parseCdxPayload(payload: unknown): Capture[] {
   });
 }
 
-export async function fetchCaptures(domain: string, fetchImpl: typeof fetch = fetch): Promise<Capture[]> {
+function createCdxUrl(domain: string, limit: number): URL {
   const url = new URL(CDX_ENDPOINT);
   url.searchParams.set("url", domain);
   url.searchParams.set("output", "json");
   url.searchParams.set("fl", CDX_FIELDS.join(","));
   url.searchParams.append("filter", "statuscode:200");
   url.searchParams.append("filter", "mimetype:text/html");
-  url.searchParams.set("limit", String(MAX_CAPTURES));
+  url.searchParams.set("limit", String(limit));
+  return url;
+}
 
+async function requestCaptures(url: URL, maxCaptures: number, fetchImpl: typeof fetch): Promise<Capture[]> {
   try {
     const response = await fetchImpl(url.toString(), {
       headers: {
@@ -142,7 +145,7 @@ export async function fetchCaptures(domain: string, fetchImpl: typeof fetch = fe
     } catch {
       throw new ArchiveProviderError("MALFORMED_ARCHIVE_RESPONSE", "The archive returned invalid JSON.");
     }
-    return parseCdxPayload(payload);
+    return parseCdxPayload(payload, maxCaptures);
   } catch (error) {
     if (error instanceof ArchiveProviderError) {
       throw error;
@@ -152,4 +155,15 @@ export async function fetchCaptures(domain: string, fetchImpl: typeof fetch = fe
     }
     throw new ArchiveProviderError("ARCHIVE_UNAVAILABLE", "The Internet Archive could not be reached.");
   }
+}
+
+export function fetchCaptures(domain: string, fetchImpl: typeof fetch = fetch): Promise<Capture[]> {
+  return requestCaptures(createCdxUrl(domain, MAX_CAPTURES), MAX_CAPTURES, fetchImpl);
+}
+
+export function fetchYearCaptures(domain: string, year: number, fetchImpl: typeof fetch = fetch): Promise<Capture[]> {
+  const url = createCdxUrl(domain, 1);
+  url.searchParams.set("from", String(year));
+  url.searchParams.set("to", String(year));
+  return requestCaptures(url, 1, fetchImpl);
 }

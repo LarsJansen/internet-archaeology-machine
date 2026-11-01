@@ -40,3 +40,16 @@ No Cloudflare deployment or credentialed remote development session was authoriz
 - Phase 1 must not claim the production-path gate is complete until the deployed `/api/captures` endpoint is smoke-tested with a few domains.
 
 If CDX is blocked in production, do not use random proxies or bypass access controls. Keep the error visible, test the documented Availability API as a reduced legitimate experience, and reassess the data source before building the timeline.
+
+## Phase 1A targeted year probes
+
+On 1 November 2026, the proposed exact-host year query was tested with `from=YYYY`, `to=YYYY`, the existing status/MIME filters, and `limit=1`. Each probe used the existing eight-second ceiling:
+
+| Domain and year | Result | Observed latency |
+| --- | --- | ---: |
+| `example.com`, 2002 | HTTP 200, one row | 1.11s |
+| `mozilla.org`, 2004 | HTTP 200, one row | 2.70s |
+| `yahoo.com`, 1999 | HTTP 200, one row | 0.65s |
+| `example.com`, 1996 | HTTP 200, no rows | 0.58s |
+
+These are feasibility observations, not latency guarantees. The application sends one query only after a visitor selects a year; it does not automatically probe other years.

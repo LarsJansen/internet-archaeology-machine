@@ -15,10 +15,10 @@ Vite compiles `index.html` and `src/client/` to `dist/`. `wrangler.jsonc` config
 The Worker has three small boundaries:
 
 1. `domain-validation.ts` reduces a bare domain or pasted HTTP(S) homepage URL to a public DNS hostname. It rejects input that could broaden the Worker into an internal or arbitrary proxy.
-2. `archive-provider.ts` constructs one fixed-host CDX request, selects six metadata fields, filters to HTTP 200 HTML records, caps the response at five rows, and times out after eight seconds.
+2. `archive-provider.ts` constructs one fixed-host CDX request, selects six metadata fields, filters to HTTP 200 HTML records, and times out after eight seconds. The original lookup remains capped at five rows; a year-specific lookup adds matching `from` and `to` values and is capped at one row.
 3. `index.ts` maps HTTP routes and turns provider outcomes into explicit JSON responses.
 
-The client calls the same-origin API and renders returned metadata through DOM properties and text nodes. It never injects archive data as HTML.
+The client creates a year selector without making archive requests. Selecting one year makes one same-origin API request for that year and renders the returned metadata through DOM properties and text nodes. It never injects archive data as HTML or automatically fans requests out across years.
 
 ## Caching
 
@@ -30,4 +30,4 @@ Tests inject a fetch implementation at the provider/route boundary. The fixture 
 
 ## Deliberate omissions
 
-There is no database, framework, authentication, telemetry, background job, retry loop, or archive-content fetching. Year grouping, de-duplication across hostname variants, and shareable investigations belong to later phases.
+There is no database, framework, authentication, telemetry, background job, retry loop, or archive-content fetching. Automatic historical scans, year grouping from bulk results, de-duplication across hostname variants, and shareable investigations belong to later phases.
