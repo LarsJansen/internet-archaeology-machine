@@ -16,11 +16,17 @@ The production deployment and authentic CDX access were verified by the project 
 - Send one bounded CDX query only when a visitor chooses a year.
 - Show one verified capture, no returned capture, timeout, rate limit, or upstream failure without scanning other years.
 
-## Phase 1B — current pull request
+## Phase 1B — complete
 
 - Retain up to two verified captures for an honest side-by-side metadata comparison.
 - Reuse checked-year results for the active domain and clear stale state when the domain changes.
 - Let visitors replace either compared year without changing the bounded archive API.
+
+## Phase 2A — current pull request
+
+- Add one owner-gated screenshot action to a verified capture.
+- Re-verify domain and year server-side before one Cloudflare Browser Run Quick Action.
+- Show one accessible screenshot without screenshot history, batching, or public quota access.
 
 ## Full Phase 1 timeline — not implemented
 
@@ -28,4 +34,4 @@ Normalize homepage variants, merge/de-duplicate capture metadata, group authenti
 
 ## Later phases — not implemented
 
-Visual page comparison, citations, exportable discovery cards, curated examples, and optional experiments such as screenshot or source-code archaeology remain separate, reviewable projects.
+Two-image visual comparison, PNG export, citations, exportable discovery cards, curated examples, and source-code archaeology remain separate, reviewable projects.

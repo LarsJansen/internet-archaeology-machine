@@ -11,8 +11,8 @@
   </head>
   <body>
     <header class="site-header">
-      <a class="wordmark" href="/" aria-label="Internet Archaeology Machine home">IAM / Phase 1B</a>
-      <span class="status-chip">Then vs now</span>
+      <a class="wordmark" href="/" aria-label="Internet Archaeology Machine home">IAM / Phase 2A</a>
+      <span class="status-chip">Owner screenshot proof</span>
     </header>
 
     <main>
@@ -58,6 +58,24 @@
         <section id="selected-capture" class="selected-capture" aria-labelledby="capture-heading" hidden>
           <h3 id="capture-heading">Verified comparison</h3>
           <ul id="capture-list" class="capture-list"></ul>
+          <div id="screenshot-controls" class="screenshot-controls">
+            <label for="screenshot-token">Owner screenshot token</label>
+            <input
+              id="screenshot-token"
+              type="password"
+              autocomplete="off"
+              spellcheck="false"
+              aria-describedby="screenshot-help"
+            />
+            <p id="screenshot-help" class="field-help">
+              Owner-only proof of concept. The token is sent in a request header, cleared after each attempt, and never
+              stored. Cloudflare’s free tier permits one Quick Action every 10 seconds.
+            </p>
+          </div>
+          <section id="screenshot-result" class="screenshot-result" aria-labelledby="screenshot-caption" hidden>
+            <p id="screenshot-caption"></p>
+            <img id="screenshot-image" alt="" />
+          </section>
         </section>
       </section>
 

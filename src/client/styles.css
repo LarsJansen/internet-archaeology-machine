@@ -286,19 +286,55 @@ footer {
   font-size: 0.8rem;
 }
 
-.replace-capture {
+.replace-capture,
+.screenshot-capture {
   min-height: 2.6rem;
-  margin-top: auto;
   padding-inline: 0.8rem;
+  font-size: 0.85rem;
+}
+
+.screenshot-capture {
+  margin-top: auto;
+}
+
+.replace-capture {
   border-color: var(--line);
   color: #e9f2ed;
   background: transparent;
-  font-size: 0.85rem;
 }
 
 .replace-capture:hover {
   border-color: var(--signal);
   background: #11231c;
+}
+
+.screenshot-controls,
+.screenshot-result {
+  margin-top: 1.5rem;
+  padding-top: 1.5rem;
+  border-top: 1px solid var(--line);
+}
+
+.screenshot-controls label {
+  display: block;
+  margin-bottom: 0.65rem;
+  font-weight: 700;
+}
+
+.screenshot-controls input {
+  max-width: 32rem;
+}
+
+.screenshot-result p {
+  color: var(--ink-muted);
+}
+
+.screenshot-result img {
+  display: block;
+  width: 100%;
+  height: auto;
+  border: 1px solid var(--line);
+  background: #fff;
 }
 
 .caveat {

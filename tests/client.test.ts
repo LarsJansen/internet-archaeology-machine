@@ -1,6 +1,6 @@
 // @vitest-environment node
 import { Window } from "happy-dom";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 
 import type { CapturesResponse } from "../src/shared/capture-types";
 import { formatCaptureTimestamp, initSearch } from "../src/client/main";
@@ -20,6 +20,14 @@ function createPage() {
       <section id="selected-capture" hidden>
         <h3 id="capture-heading"></h3>
         <ul id="capture-list"></ul>
+        <div id="screenshot-controls">
+          <label for="screenshot-token">Owner screenshot token</label>
+          <input id="screenshot-token" type="password" autocomplete="off" />
+        </div>
+        <section id="screenshot-result" hidden>
+          <p id="screenshot-caption"></p>
+          <img id="screenshot-image" />
+        </section>
       </section>
     </section>
   `;
@@ -40,6 +48,12 @@ async function clickYear(window: Window, year: number) {
 
 async function replaceYear(window: Window, year: number) {
   const button = window.document.querySelector(`[data-replace-year="${year}"]`);
+  button?.dispatchEvent(new window.Event("click", { bubbles: true, cancelable: true }));
+  await new Promise((resolve) => setTimeout(resolve, 0));
+}
+
+async function clickScreenshot(window: Window, year: number) {
+  const button = window.document.querySelector(`[data-screenshot-year="${year}"]`);
   button?.dispatchEvent(new window.Event("click", { bubbles: true, cancelable: true }));
   await new Promise((resolve) => setTimeout(resolve, 0));
 }
@@ -137,6 +151,146 @@ describe("on-demand year explorer", () => {
     expect(link.href).toBe(payload.captures[0].replayUrl);
     expect(link.rel).toContain("noreferrer");
     expect(window.document.querySelector("#selected-capture")?.hasAttribute("hidden")).toBe(false);
+  });
+
+  it("sends the owner token in a header and renders one screenshot for a verified capture", async () => {
+    const window = createPage();
+    let screenshotRequest: Request | undefined;
+    const fakeFetch: typeof fetch = async (input, init) => {
+      if (String(input) === "/api/screenshot") {
+        screenshotRequest = new Request("https://iam.test/api/screenshot", init);
+        return new Response(new Uint8Array([137, 80, 78, 71]), { headers: { "Content-Type": "image/png" } });
+      }
+      return Response.json(capturePayload(2002));
+    };
+    initSearch(window.document as unknown as Document, fakeFetch);
+    (window.document.querySelector("#domain") as unknown as HTMLInputElement).value = "example.com";
+    await submit(window);
+    await clickYear(window, 2002);
+    (window.document.querySelector("#screenshot-token") as unknown as HTMLInputElement).value = "owner-secret";
+
+    await clickScreenshot(window, 2002);
+
+    expect(screenshotRequest?.method).toBe("POST");
+    expect(screenshotRequest?.headers.get("x-screenshot-token")).toBe("owner-secret");
+    await expect(screenshotRequest?.json()).resolves.toEqual({ domain: "example.com", year: 2002 });
+    expect((window.document.querySelector("#screenshot-token") as unknown as HTMLInputElement).value).toBe("");
+    const image = window.document.querySelector("#screenshot-image") as unknown as HTMLImageElement;
+    expect(image.src).toMatch(/^blob:/);
+    expect(image.alt).toBe("Screenshot of the archived example.com homepage capture from 2002");
+    expect(window.document.querySelector("#screenshot-result")?.hasAttribute("hidden")).toBe(false);
+    expect(window.document.querySelectorAll("#capture-list li")).toHaveLength(1);
+  });
+
+  it.each(["https://Example.com/path", "EXAMPLE.COM"])(
+    "keeps a screenshot requested from normalized domain input %s",
+    async (domainInput) => {
+      const window = createPage();
+      const fakeFetch: typeof fetch = async (input) => {
+        if (String(input) === "/api/screenshot") {
+          return new Response(new Uint8Array([137]), { headers: { "Content-Type": "image/png" } });
+        }
+        return Response.json(capturePayload(2002, "example.com"));
+      };
+      initSearch(window.document as unknown as Document, fakeFetch);
+      (window.document.querySelector("#domain") as unknown as HTMLInputElement).value = domainInput;
+      await submit(window);
+      await clickYear(window, 2002);
+      (window.document.querySelector("#screenshot-token") as unknown as HTMLInputElement).value = "owner-secret";
+
+      await clickScreenshot(window, 2002);
+
+      expect(window.document.querySelector("#screenshot-result")?.hasAttribute("hidden")).toBe(false);
+      expect(window.document.querySelector("#status")?.textContent).toBe(
+        "Screenshot captured for example.com in 2002.",
+      );
+    },
+  );
+
+  it("allows only one screenshot request while an image is pending", async () => {
+    const window = createPage();
+    let screenshotCalls = 0;
+    let resolveScreenshot!: (response: Response) => void;
+    const fakeFetch: typeof fetch = async (input) => {
+      if (String(input) === "/api/screenshot") {
+        screenshotCalls += 1;
+        return new Promise((resolve) => (resolveScreenshot = resolve));
+      }
+      const year = Number(new URL(String(input), "https://iam.test").searchParams.get("year"));
+      return Response.json(capturePayload(year));
+    };
+    initSearch(window.document as unknown as Document, fakeFetch);
+    (window.document.querySelector("#domain") as unknown as HTMLInputElement).value = "example.com";
+    await submit(window);
+    await clickYear(window, 2002);
+    await clickYear(window, 2003);
+    const tokenInput = window.document.querySelector("#screenshot-token") as unknown as HTMLInputElement;
+    tokenInput.value = "owner-secret";
+
+    await clickScreenshot(window, 2002);
+    tokenInput.value = "owner-secret";
+    await clickScreenshot(window, 2003);
+
+    expect(screenshotCalls).toBe(1);
+    expect(window.document.querySelector("#status")?.textContent).toBe("Capturing the 2002 Wayback replay…");
+    expect(
+      (window.document.querySelector('[data-screenshot-year="2003"]') as unknown as HTMLButtonElement).disabled,
+    ).toBe(true);
+    resolveScreenshot(new Response(new Uint8Array([137]), { headers: { "Content-Type": "image/png" } }));
+    await new Promise((resolve) => setTimeout(resolve, 0));
+  });
+
+  it("revokes and clears the screenshot when the domain changes", async () => {
+    const window = createPage();
+    const revokeSpy = vi.spyOn(URL, "revokeObjectURL");
+    const fakeFetch: typeof fetch = async (input) => {
+      if (String(input) === "/api/screenshot") {
+        return new Response(new Uint8Array([137]), { headers: { "Content-Type": "image/png" } });
+      }
+      const url = new URL(String(input), "https://iam.test");
+      return Response.json(capturePayload(Number(url.searchParams.get("year")), url.searchParams.get("domain") ?? ""));
+    };
+    initSearch(window.document as unknown as Document, fakeFetch);
+    const domainInput = window.document.querySelector("#domain") as unknown as HTMLInputElement;
+    domainInput.value = "example.com";
+    await submit(window);
+    await clickYear(window, 2002);
+    (window.document.querySelector("#screenshot-token") as unknown as HTMLInputElement).value = "owner-secret";
+    await clickScreenshot(window, 2002);
+    const image = window.document.querySelector("#screenshot-image") as unknown as HTMLImageElement;
+    const screenshotUrl = image.src;
+
+    domainInput.value = "mozilla.org";
+    await submit(window);
+
+    expect(window.document.querySelector("#screenshot-result")?.hasAttribute("hidden")).toBe(true);
+    expect(image.hasAttribute("src")).toBe(false);
+    expect(revokeSpy).toHaveBeenCalledWith(screenshotUrl);
+    revokeSpy.mockRestore();
+  });
+
+  it("shows a screenshot rate-limit error without removing verified metadata", async () => {
+    const window = createPage();
+    const fakeFetch: typeof fetch = async (input) => {
+      if (String(input) === "/api/screenshot") {
+        return Response.json(
+          { error: { code: "SCREENSHOT_RATE_LIMITED", message: "Cloudflare Browser Run is rate limited." } },
+          { status: 429 },
+        );
+      }
+      return Response.json(capturePayload(2002));
+    };
+    initSearch(window.document as unknown as Document, fakeFetch);
+    (window.document.querySelector("#domain") as unknown as HTMLInputElement).value = "example.com";
+    await submit(window);
+    await clickYear(window, 2002);
+    (window.document.querySelector("#screenshot-token") as unknown as HTMLInputElement).value = "owner-secret";
+
+    await clickScreenshot(window, 2002);
+
+    expect(window.document.querySelector("#status")?.textContent).toBe("Cloudflare Browser Run is rate limited.");
+    expect(window.document.querySelector("#screenshot-result")?.hasAttribute("hidden")).toBe(true);
+    expect(window.document.querySelectorAll("#capture-list li")).toHaveLength(1);
   });
 
   it("retains two verified captures for side-by-side comparison", async () => {
