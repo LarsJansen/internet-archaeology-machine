@@ -2,12 +2,13 @@
 
 Internet Archaeology Machine (IAM) is a free, open-source experiment for exploring surviving homepage captures in the Internet Archive. It is a curiosity tool, not a SaaS product and not an archive of its own.
 
-The current application is a small Vite/TypeScript interface and Cloudflare Worker with an on-demand historical year explorer. It checks only the year a visitor selects and can compare two verified archive entry points.
+The current application is a small Vite/TypeScript interface and Cloudflare Worker with an on-demand historical year explorer. It checks only the year a visitor selects, can compare two verified archive entry points, and includes an owner-gated one-capture screenshot proof of concept.
 
 ## What works
 
 - A responsive, keyboard-friendly year explorer with not-checked, loading, empty, success, and upstream-error states.
 - A two-capture metadata comparison with safe replay links and replaceable, session-cached year selections.
+- An opt-in owner screenshot action that re-verifies the selected capture server-side before using Cloudflare Browser Run.
 - `GET /api/health` for a local/deployed health check.
 - `GET /api/captures?domain=example.com` for a bounded Internet Archive CDX query.
 - `GET /api/captures?domain=example.com&year=2002` for at most one capture from one selected year.
@@ -42,6 +43,8 @@ curl "http://localhost:8787/api/captures?domain=example.com&year=2002"
 ```
 
 Successful capture responses identify `internet-archive-cdx` as their source and include an archive-coverage limitation. HTTP 429 from the upstream archive becomes an explicit `ARCHIVE_RATE_LIMITED` response; the application never swaps in demo data.
+
+The screenshot endpoint accepts only a validated domain and year. It never accepts a destination URL or HTML, and it remains disabled until the owner configures `SCREENSHOT_ACCESS_TOKEN`. See [deployment preparation](docs/DEPLOYMENT.md) for setup and testing.
 
 ## Project map
 

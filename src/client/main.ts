@@ -36,11 +36,13 @@ function createCaptureItem(
   year: number,
   capture: Capture,
   onReplace: () => void,
+  onScreenshot: () => void,
 ): HTMLLIElement {
   const item = document.createElement("li");
   const yearHeading = document.createElement("h4");
   const link = document.createElement("a");
   const metadata = document.createElement("span");
+  const screenshotButton = document.createElement("button");
   const replaceButton = document.createElement("button");
 
   item.className = "capture-card";
@@ -50,6 +52,11 @@ function createCaptureItem(
   link.rel = "noopener noreferrer";
   link.textContent = formatCaptureTimestamp(capture.timestamp);
   metadata.textContent = `${capture.statusCode} · ${capture.mimeType}`;
+  screenshotButton.type = "button";
+  screenshotButton.className = "screenshot-capture";
+  screenshotButton.dataset.screenshotYear = String(year);
+  screenshotButton.textContent = "Screenshot this capture";
+  screenshotButton.addEventListener("click", onScreenshot);
   replaceButton.type = "button";
   replaceButton.className = "replace-capture";
   replaceButton.dataset.replaceYear = String(year);
@@ -57,7 +64,7 @@ function createCaptureItem(
   replaceButton.textContent = "Replace this year";
   replaceButton.addEventListener("click", onReplace);
 
-  item.append(yearHeading, link, metadata, replaceButton);
+  item.append(yearHeading, link, metadata, screenshotButton, replaceButton);
   return item;
 }
 
@@ -80,6 +87,10 @@ export function initSearch(document: Document, fetchImpl: typeof fetch = fetch):
   const selectedCapture = document.querySelector<HTMLElement>("#selected-capture");
   const captureHeading = document.querySelector<HTMLElement>("#capture-heading");
   const captureList = document.querySelector<HTMLUListElement>("#capture-list");
+  const screenshotToken = document.querySelector<HTMLInputElement>("#screenshot-token");
+  const screenshotResult = document.querySelector<HTMLElement>("#screenshot-result");
+  const screenshotCaption = document.querySelector<HTMLElement>("#screenshot-caption");
+  const screenshotImage = document.querySelector<HTMLImageElement>("#screenshot-image");
 
   if (
     !form ||
@@ -91,26 +102,111 @@ export function initSearch(document: Document, fetchImpl: typeof fetch = fetch):
     !yearList ||
     !selectedCapture ||
     !captureHeading ||
-    !captureList
+    !captureList ||
+    !screenshotToken ||
+    !screenshotResult ||
+    !screenshotCaption ||
+    !screenshotImage
   ) {
     throw new Error("Search interface markup is incomplete.");
   }
 
   let requestPending = false;
+  let screenshotPending = false;
+  let screenshotObjectUrl: string | undefined;
   let activeDomain = "";
   const checkedYears = new Map<number, Capture | null>();
   let comparedCaptures: Array<{ year: number; capture: Capture }> = [];
+
+  const clearScreenshot = () => {
+    if (screenshotObjectUrl) {
+      URL.revokeObjectURL(screenshotObjectUrl);
+      screenshotObjectUrl = undefined;
+    }
+    screenshotImage.removeAttribute("src");
+    screenshotImage.alt = "";
+    screenshotCaption.textContent = "";
+    screenshotResult.hidden = true;
+  };
+
+  const takeScreenshot = async (year: number, domain: string) => {
+    if (requestPending || screenshotPending) return;
+    const token = screenshotToken.value;
+    if (!token) {
+      status.textContent = "Enter the owner screenshot token before requesting an image.";
+      screenshotToken.focus();
+      return;
+    }
+
+    screenshotPending = true;
+    screenshotToken.value = "";
+    const interactiveButtons = Array.from(
+      document.querySelectorAll<HTMLButtonElement>(
+        "#year-list button, #capture-list .replace-capture, #capture-list .screenshot-capture",
+      ),
+    );
+    interactiveButtons.forEach((button) => (button.disabled = true));
+    formButton.disabled = true;
+    screenshotToken.disabled = true;
+    clearScreenshot();
+    status.textContent = `Capturing the ${year} Wayback replay…`;
+
+    try {
+      const response = await fetchImpl("/api/screenshot", {
+        method: "POST",
+        headers: {
+          Accept: "image/png, application/json",
+          "Content-Type": "application/json",
+          "X-Screenshot-Token": token,
+        },
+        body: JSON.stringify({ domain, year }),
+      });
+      if (!response.ok) {
+        const payload: unknown = await response.json();
+        status.textContent = errorMessage(payload);
+        return;
+      }
+      if (!response.headers.get("Content-Type")?.startsWith("image/")) {
+        status.textContent = "The screenshot service returned an unexpected response.";
+        return;
+      }
+      const objectUrl = URL.createObjectURL(await response.blob());
+      if (activeDomain !== domain) {
+        URL.revokeObjectURL(objectUrl);
+        return;
+      }
+      screenshotObjectUrl = objectUrl;
+      screenshotImage.src = objectUrl;
+      screenshotImage.alt = `Screenshot of the archived ${domain} homepage capture from ${year}`;
+      screenshotCaption.textContent = `${year} archived homepage screenshot for ${domain}`;
+      screenshotResult.hidden = false;
+      status.textContent = `Screenshot captured for ${domain} in ${year}.`;
+    } catch {
+      status.textContent = "The screenshot service could not be reached. Try again later.";
+    } finally {
+      screenshotPending = false;
+      interactiveButtons.forEach((button) => (button.disabled = false));
+      formButton.disabled = false;
+      screenshotToken.disabled = false;
+    }
+  };
 
   const renderComparison = (domain: string) => {
     captureList.replaceChildren();
     for (const compared of comparedCaptures) {
       captureList.append(
-        createCaptureItem(document, compared.year, compared.capture, () => {
-          comparedCaptures = comparedCaptures.filter(({ year }) => year !== compared.year);
-          renderComparison(domain);
-          status.textContent = `Choose another year to replace ${compared.year}.`;
-          yearList.querySelector<HTMLButtonElement>(`button[data-year="${compared.year}"]`)?.focus();
-        }),
+        createCaptureItem(
+          document,
+          compared.year,
+          compared.capture,
+          () => {
+            comparedCaptures = comparedCaptures.filter(({ year }) => year !== compared.year);
+            renderComparison(domain);
+            status.textContent = `Choose another year to replace ${compared.year}.`;
+            yearList.querySelector<HTMLButtonElement>(`button[data-year="${compared.year}"]`)?.focus();
+          },
+          () => void takeScreenshot(compared.year, domain),
+        ),
       );
     }
     captureHeading.textContent = `Verified captures for ${domain}`;
@@ -133,7 +229,7 @@ export function initSearch(document: Document, fetchImpl: typeof fetch = fetch):
 
   form.addEventListener("submit", (event) => {
     event.preventDefault();
-    if (requestPending) return;
+    if (requestPending || screenshotPending) return;
 
     const domain = input.value.trim();
     const currentYear = new Date().getUTCFullYear();
@@ -141,12 +237,13 @@ export function initSearch(document: Document, fetchImpl: typeof fetch = fetch):
       checkedYears.clear();
       comparedCaptures = [];
       activeDomain = domain;
+      clearScreenshot();
     }
     yearList.replaceChildren();
     renderComparison(domain);
 
     const checkYear = async (year: number, yearButton: HTMLButtonElement) => {
-      if (requestPending) return;
+      if (requestPending || screenshotPending) return;
       if (checkedYears.has(year)) {
         const cachedCapture = checkedYears.get(year);
         if (cachedCapture) {
