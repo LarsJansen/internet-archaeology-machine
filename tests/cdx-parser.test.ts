@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 
 import fixture from "./fixtures/cdx-example.json";
 import {
@@ -158,5 +158,23 @@ describe("fetchYearCaptures", () => {
       code: "ARCHIVE_RATE_LIMITED",
       upstreamStatus: 429,
     });
+  });
+
+  it("preserves the eight-second timeout and classifies it for a selected year", async () => {
+    const timeoutSignal = new AbortController().signal;
+    const timeoutSpy = vi.spyOn(AbortSignal, "timeout").mockReturnValue(timeoutSignal);
+    const fakeFetch: typeof fetch = async (_input, init) => {
+      expect(init?.signal).toBe(timeoutSignal);
+      throw new DOMException("timed out", "TimeoutError");
+    };
+
+    try {
+      await expect(fetchYearCaptures("example.com", 2002, fakeFetch)).rejects.toMatchObject({
+        code: "ARCHIVE_TIMEOUT",
+      });
+      expect(timeoutSpy).toHaveBeenCalledWith(8_000);
+    } finally {
+      timeoutSpy.mockRestore();
+    }
   });
 });

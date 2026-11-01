@@ -31,13 +31,15 @@ The sample CDX rows included the documented header followed by string-valued met
 
 The completed local Wrangler path was then exercised on port 8799. The built homepage returned HTTP 200 in 113ms, `/api/health` returned HTTP 200 in 201ms, and `/api/captures?domain=example.com` returned HTTP 200 with authentic CDX metadata in 4.45s. These timings are single observations, not performance guarantees.
 
-## What remains unverified
+## Phase 0 status at handoff
 
-No Cloudflare deployment or credentialed remote development session was authorized. Therefore:
+At the end of the Phase 0 implementation session, no Cloudflare deployment or credentialed remote development session had been authorized. At that point:
 
 - CDX access from deployed Cloudflare infrastructure is not yet proven.
 - Production latency, redirects, Cloudflare egress behavior, and production 403/429 frequency remain unknown.
 - Phase 1 must not claim the production-path gate is complete until the deployed `/api/captures` endpoint is smoke-tested with a few domains.
+
+The project owner subsequently confirmed that the production Cloudflare deployment and authentic CDX requests succeeded, completing this gate before Phase 1A began. Production behavior can still vary over time, so the existing explicit error states remain necessary.
 
 If CDX is blocked in production, do not use random proxies or bypass access controls. Keep the error visible, test the documented Availability API as a reduced legitimate experience, and reassess the data source before building the timeline.
 
