@@ -115,6 +115,7 @@ export function initSearch(document: Document, fetchImpl: typeof fetch = fetch):
   let screenshotPending = false;
   let screenshotObjectUrl: string | undefined;
   let activeDomain = "";
+  let searchGeneration = 0;
   const checkedYears = new Map<number, Capture | null>();
   let comparedCaptures: Array<{ year: number; capture: Capture }> = [];
 
@@ -139,6 +140,7 @@ export function initSearch(document: Document, fetchImpl: typeof fetch = fetch):
     }
 
     screenshotPending = true;
+    const requestedGeneration = searchGeneration;
     screenshotToken.value = "";
     const interactiveButtons = Array.from(
       document.querySelectorAll<HTMLButtonElement>(
@@ -171,7 +173,7 @@ export function initSearch(document: Document, fetchImpl: typeof fetch = fetch):
         return;
       }
       const objectUrl = URL.createObjectURL(await response.blob());
-      if (activeDomain !== domain) {
+      if (requestedGeneration !== searchGeneration) {
         URL.revokeObjectURL(objectUrl);
         return;
       }
@@ -234,6 +236,7 @@ export function initSearch(document: Document, fetchImpl: typeof fetch = fetch):
     const domain = input.value.trim();
     const currentYear = new Date().getUTCFullYear();
     if (domain !== activeDomain) {
+      searchGeneration += 1;
       checkedYears.clear();
       comparedCaptures = [];
       activeDomain = domain;

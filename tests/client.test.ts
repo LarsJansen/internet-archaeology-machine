@@ -182,6 +182,31 @@ describe("on-demand year explorer", () => {
     expect(window.document.querySelectorAll("#capture-list li")).toHaveLength(1);
   });
 
+  it.each(["https://Example.com/path", "EXAMPLE.COM"])(
+    "keeps a screenshot requested from normalized domain input %s",
+    async (domainInput) => {
+      const window = createPage();
+      const fakeFetch: typeof fetch = async (input) => {
+        if (String(input) === "/api/screenshot") {
+          return new Response(new Uint8Array([137]), { headers: { "Content-Type": "image/png" } });
+        }
+        return Response.json(capturePayload(2002, "example.com"));
+      };
+      initSearch(window.document as unknown as Document, fakeFetch);
+      (window.document.querySelector("#domain") as unknown as HTMLInputElement).value = domainInput;
+      await submit(window);
+      await clickYear(window, 2002);
+      (window.document.querySelector("#screenshot-token") as unknown as HTMLInputElement).value = "owner-secret";
+
+      await clickScreenshot(window, 2002);
+
+      expect(window.document.querySelector("#screenshot-result")?.hasAttribute("hidden")).toBe(false);
+      expect(window.document.querySelector("#status")?.textContent).toBe(
+        "Screenshot captured for example.com in 2002.",
+      );
+    },
+  );
+
   it("allows only one screenshot request while an image is pending", async () => {
     const window = createPage();
     let screenshotCalls = 0;
