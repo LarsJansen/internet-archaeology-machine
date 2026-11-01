@@ -1,9 +1,10 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 
 import fixture from "./fixtures/cdx-example.json";
 import {
   ArchiveProviderError,
   fetchCaptures,
+  fetchYearCaptures,
   parseCdxPayload,
 } from "../src/worker/archive-provider";
 
@@ -126,5 +127,54 @@ describe("fetchCaptures", () => {
       code: "ARCHIVE_UNAVAILABLE",
       upstreamStatus: 302,
     });
+  });
+});
+
+describe("fetchYearCaptures", () => {
+  it("uses one bounded exact-host query for the selected year", async () => {
+    let requestedUrl = "";
+    const fakeFetch: typeof fetch = async (input) => {
+      requestedUrl = String(input);
+      return Response.json(fixture);
+    };
+
+    const captures = await fetchYearCaptures("example.com", 2002, fakeFetch);
+    const url = new URL(requestedUrl);
+
+    expect(url.origin + url.pathname).toBe("https://web.archive.org/cdx/search/cdx");
+    expect(url.searchParams.get("url")).toBe("example.com");
+    expect(url.searchParams.get("from")).toBe("2002");
+    expect(url.searchParams.get("to")).toBe("2002");
+    expect(url.searchParams.get("limit")).toBe("1");
+    expect(url.searchParams.get("collapse")).toBeNull();
+    expect(url.searchParams.getAll("filter")).toEqual(["statuscode:200", "mimetype:text/html"]);
+    expect(captures).toHaveLength(1);
+  });
+
+  it("preserves rate-limit errors for a selected year", async () => {
+    const fakeFetch: typeof fetch = async () => new Response("slow down", { status: 429 });
+
+    await expect(fetchYearCaptures("example.com", 2002, fakeFetch)).rejects.toMatchObject({
+      code: "ARCHIVE_RATE_LIMITED",
+      upstreamStatus: 429,
+    });
+  });
+
+  it("preserves the eight-second timeout and classifies it for a selected year", async () => {
+    const timeoutSignal = new AbortController().signal;
+    const timeoutSpy = vi.spyOn(AbortSignal, "timeout").mockReturnValue(timeoutSignal);
+    const fakeFetch: typeof fetch = async (_input, init) => {
+      expect(init?.signal).toBe(timeoutSignal);
+      throw new DOMException("timed out", "TimeoutError");
+    };
+
+    try {
+      await expect(fetchYearCaptures("example.com", 2002, fakeFetch)).rejects.toMatchObject({
+        code: "ARCHIVE_TIMEOUT",
+      });
+      expect(timeoutSpy).toHaveBeenCalledWith(8_000);
+    } finally {
+      timeoutSpy.mockRestore();
+    }
   });
 });

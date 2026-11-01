@@ -1,9 +1,10 @@
 import type { ApiErrorResponse, CapturesResponse } from "../shared/capture-types";
-import { ArchiveProviderError, fetchCaptures } from "./archive-provider";
+import { ArchiveProviderError, fetchCaptures, fetchYearCaptures } from "./archive-provider";
 import { normalizeDomain } from "./domain-validation";
 
 const ARCHIVE_LIMITATION =
   "Results are a small sample of surviving indexed homepage captures. Gaps do not prove the site was offline.";
+const FIRST_ARCHIVE_YEAR = 1996;
 
 function json(body: unknown, init: ResponseInit = {}): Response {
   const headers = new Headers(init.headers);
@@ -34,13 +35,33 @@ export async function handleRequest(request: Request, fetchImpl: typeof fetch = 
       return errorResponse(validation.code, validation.message, 400);
     }
 
+    const yearValue = url.searchParams.get("year");
+    let year: number | undefined;
+    if (yearValue !== null) {
+      const currentYear = new Date().getUTCFullYear();
+      if (!/^\d{4}$/.test(yearValue) || Number(yearValue) < FIRST_ARCHIVE_YEAR || Number(yearValue) > currentYear) {
+        return errorResponse(
+          "INVALID_YEAR",
+          `Choose a year from ${FIRST_ARCHIVE_YEAR} to ${currentYear}.`,
+          400,
+        );
+      }
+      year = Number(yearValue);
+    }
+
     try {
-      const captures = await fetchCaptures(validation.domain, fetchImpl);
+      const captures =
+        year === undefined
+          ? await fetchCaptures(validation.domain, fetchImpl)
+          : await fetchYearCaptures(validation.domain, year, fetchImpl);
       const body: CapturesResponse = {
         domain: validation.domain,
         captures,
         source: "internet-archive-cdx",
-        limitation: ARCHIVE_LIMITATION,
+        limitation:
+          year === undefined
+            ? ARCHIVE_LIMITATION
+            : `This is at most one surviving indexed homepage capture for ${year}. No result does not prove the site was offline.`,
       };
       return json(body, { headers: { "Cache-Control": "public, max-age=300, s-maxage=86400" } });
     } catch (error) {
