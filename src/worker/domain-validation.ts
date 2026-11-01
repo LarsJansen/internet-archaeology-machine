@@ -34,8 +34,8 @@ export function normalizeDomain(input: string): DomainValidationResult {
   }
 
   let url: URL;
+  const hasScheme = /^[a-z][a-z\d+.-]*:\/\//i.test(value);
   try {
-    const hasScheme = /^[a-z][a-z\d+.-]*:\/\//i.test(value);
     url = new URL(hasScheme ? value : `https://${value}`);
   } catch {
     return fail("INVALID_DOMAIN");
@@ -47,7 +47,12 @@ export function normalizeDomain(input: string): DomainValidationResult {
   if (url.username || url.password) {
     return fail("URL_CREDENTIALS_NOT_ALLOWED");
   }
-  if (url.port) {
+  const rawAuthority = hasScheme ? value.slice(value.indexOf("://") + 3).split(/[/?#]/, 1)[0] : value.split(/[/?#]/, 1)[0];
+  const rawHostPort = rawAuthority.slice(rawAuthority.lastIndexOf("@") + 1);
+  const hasExplicitPort = rawHostPort.startsWith("[")
+    ? /^\[[^\]]+\]:\d+$/.test(rawHostPort)
+    : /:\d+$/.test(rawHostPort);
+  if (url.port || hasExplicitPort) {
     return fail("PORT_NOT_ALLOWED");
   }
 
@@ -58,7 +63,12 @@ export function normalizeDomain(input: string): DomainValidationResult {
 
   const labels = hostname.split(".");
   const privateSuffixes = ["local", "localhost", "internal", "home", "lan"];
-  if (labels.length < 2 || privateSuffixes.includes(labels.at(-1) ?? "")) {
+  if (
+    labels.length < 2 ||
+    privateSuffixes.includes(labels.at(-1) ?? "") ||
+    hostname === "home.arpa" ||
+    hostname.endsWith(".home.arpa")
+  ) {
     return fail("PRIVATE_HOST");
   }
 

@@ -8,6 +8,10 @@ import {
 } from "../src/worker/archive-provider";
 
 describe("parseCdxPayload", () => {
+  it("treats an empty CDX array as no captures", () => {
+    expect(parseCdxPayload([])).toEqual([]);
+  });
+
   it("maps a real CDX response shape to capture metadata", () => {
     expect(parseCdxPayload(fixture)).toEqual([
       {
@@ -49,6 +53,13 @@ describe("parseCdxPayload", () => {
     ["missing required header", [["timestamp", "original"]]],
     ["malformed row", [fixture[0], ["20010101000000"]]],
     ["invalid timestamp", [fixture[0], ["not-a-time", "https://example.com", "200", "text/html", "D", "1"]]],
+    ["duplicate header", [["timestamp", "original", "statuscode", "mimetype", "digest", "length", "digest"]]],
+    [
+      "coerced object metadata",
+      [fixture[0], ["20010101000000", "https://example.com", { code: 200 }, ["text/html"], { value: "D" }, "1"]],
+    ],
+    ["invalid original URL", [fixture[0], ["20010101000000", "https://", "200", "text/html", "D", "1"]]],
+    ["null length", [fixture[0], ["20010101000000", "https://example.com", "200", "text/html", "D", null]]],
   ])("rejects a %s", (_name, payload) => {
     expect(() => parseCdxPayload(payload)).toThrowError(ArchiveProviderError);
   });
@@ -57,8 +68,10 @@ describe("parseCdxPayload", () => {
 describe("fetchCaptures", () => {
   it("uses the fixed CDX endpoint and a five-row exact-homepage query", async () => {
     let requestedUrl = "";
-    const fakeFetch: typeof fetch = async (input) => {
+    let requestedRedirectPolicy: string | undefined;
+    const fakeFetch: typeof fetch = async (input, init) => {
       requestedUrl = String(input);
+      requestedRedirectPolicy = init?.redirect;
       return Response.json(fixture);
     };
 
@@ -69,7 +82,14 @@ describe("fetchCaptures", () => {
     expect(url.searchParams.get("url")).toBe("example.com");
     expect(url.searchParams.get("limit")).toBe("5");
     expect(url.searchParams.getAll("filter")).toEqual(["statuscode:200", "mimetype:text/html"]);
+    expect(requestedRedirectPolicy).toBe("manual");
     expect(captures).toHaveLength(3);
+  });
+
+  it("returns no captures for a valid empty CDX response", async () => {
+    const fakeFetch: typeof fetch = async () => Response.json([]);
+
+    await expect(fetchCaptures("no-captures.example", fakeFetch)).resolves.toEqual([]);
   });
 
   it("caps an oversized response at five captures", async () => {
@@ -86,5 +106,25 @@ describe("fetchCaptures", () => {
     const fakeFetch: typeof fetch = async () => new Response("upstream error", { status });
 
     await expect(fetchCaptures("example.com", fakeFetch)).rejects.toMatchObject({ code, upstreamStatus: status });
+  });
+
+  it("classifies invalid upstream JSON as a malformed response", async () => {
+    const fakeFetch: typeof fetch = async () => new Response("not json", { status: 200 });
+
+    await expect(fetchCaptures("example.com", fakeFetch)).rejects.toMatchObject({
+      code: "MALFORMED_ARCHIVE_RESPONSE",
+    });
+  });
+
+  it("does not follow an upstream redirect", async () => {
+    const fakeFetch: typeof fetch = async (_input, init) => {
+      expect(init?.redirect).toBe("manual");
+      return new Response(null, { status: 302, headers: { Location: "https://untrusted.example/" } });
+    };
+
+    await expect(fetchCaptures("example.com", fakeFetch)).rejects.toMatchObject({
+      code: "ARCHIVE_UNAVAILABLE",
+      upstreamStatus: 302,
+    });
   });
 });

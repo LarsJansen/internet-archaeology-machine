@@ -29,6 +29,19 @@ describe("Worker API", () => {
     await expect(response.json()).resolves.toMatchObject({ error: { code: "PRIVATE_HOST" } });
   });
 
+  it.each(["http%3A%2F%2Fexample.com%3A80", "router.home.arpa"])(
+    "rejects protected input %s before contacting the archive",
+    async (domain) => {
+      const failFetch: typeof fetch = async () => {
+        throw new Error("archive fetch must not run");
+      };
+
+      const response = await handleRequest(request(`/api/captures?domain=${domain}`), failFetch);
+
+      expect(response.status).toBe(400);
+    },
+  );
+
   it("returns normalized live-source capture metadata", async () => {
     const fakeFetch: typeof fetch = async () => Response.json(fixture);
 
@@ -43,6 +56,16 @@ describe("Worker API", () => {
     });
     expect(body.captures).toHaveLength(3);
     expect(body.captures[0]).toMatchObject({ timestamp: "20020120142510" });
+  });
+
+  it("returns a successful empty capture response when CDX has no matches", async () => {
+    const fakeFetch: typeof fetch = async () => Response.json([]);
+
+    const response = await handleRequest(request("/api/captures?domain=example.com"), fakeFetch);
+    const body = (await response.json()) as CapturesResponse;
+
+    expect(response.status).toBe(200);
+    expect(body.captures).toEqual([]);
   });
 
   it.each([

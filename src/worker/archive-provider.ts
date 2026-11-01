@@ -27,11 +27,20 @@ function malformed(message: string): never {
 }
 
 export function parseCdxPayload(payload: unknown): Capture[] {
+  if (Array.isArray(payload) && payload.length === 0) {
+    return [];
+  }
   if (!Array.isArray(payload) || !Array.isArray(payload[0])) {
     return malformed("The archive returned an unexpected JSON shape.");
   }
 
-  const header = payload[0].map(String);
+  if (payload[0].some((field) => typeof field !== "string")) {
+    return malformed("The archive returned a malformed metadata header.");
+  }
+  const header = payload[0] as string[];
+  if (new Set(header).size !== header.length) {
+    return malformed("The archive returned duplicate metadata fields.");
+  }
   const indexes = Object.fromEntries(CDX_FIELDS.map((field) => [field, header.indexOf(field)])) as Record<
     (typeof CDX_FIELDS)[number],
     number
@@ -45,25 +54,53 @@ export function parseCdxPayload(payload: unknown): Capture[] {
       return malformed("The archive returned a malformed capture row.");
     }
 
-    const timestamp = String(row[indexes.timestamp] ?? "");
-    const originalUrl = String(row[indexes.original] ?? "");
-    const statusCode = String(row[indexes.statuscode] ?? "");
-    const mimeType = String(row[indexes.mimetype] ?? "");
-    const digest = String(row[indexes.digest] ?? "");
-    const rawLength = String(row[indexes.length] ?? "");
+    const timestamp = row[indexes.timestamp];
+    const originalUrl = row[indexes.original];
+    const statusCode = row[indexes.statuscode];
+    const mimeType = row[indexes.mimetype];
+    const digest = row[indexes.digest];
+    const rawLength = row[indexes.length];
 
-    if (!/^\d{14}$/.test(timestamp) || !/^https?:\/\//i.test(originalUrl) || !statusCode || !mimeType || !digest) {
+    if (
+      typeof timestamp !== "string" ||
+      typeof originalUrl !== "string" ||
+      typeof statusCode !== "string" ||
+      typeof mimeType !== "string" ||
+      typeof digest !== "string" ||
+      typeof rawLength !== "string"
+    ) {
+      return malformed("The archive returned non-text capture metadata.");
+    }
+
+    let parsedOriginal: URL;
+    try {
+      parsedOriginal = new URL(originalUrl);
+    } catch {
+      return malformed("The archive returned an invalid original URL.");
+    }
+
+    if (
+      !/^\d{14}$/.test(timestamp) ||
+      (parsedOriginal.protocol !== "http:" && parsedOriginal.protocol !== "https:") ||
+      !parsedOriginal.hostname ||
+      !/^\d{3}$/.test(statusCode) ||
+      !/^[^\s/]+\/[^\s/]+$/.test(mimeType) ||
+      !digest
+    ) {
       return malformed("The archive returned invalid capture metadata.");
     }
 
-    const numericLength = Number(rawLength);
+    if (rawLength !== "-" && !/^\d+$/.test(rawLength)) {
+      return malformed("The archive returned an invalid capture length.");
+    }
+    const numericLength = rawLength === "-" ? null : Number(rawLength);
     return {
       timestamp,
       originalUrl,
       statusCode,
       mimeType,
       digest,
-      length: Number.isFinite(numericLength) && numericLength >= 0 ? numericLength : null,
+      length: numericLength,
       replayUrl: `https://web.archive.org/web/${timestamp}/${originalUrl}`,
     };
   });
@@ -84,6 +121,7 @@ export async function fetchCaptures(domain: string, fetchImpl: typeof fetch = fe
         Accept: "application/json",
         "User-Agent": "Internet-Archaeology-Machine/0.1 (+https://github.com/LarsJansen/internet-archaeology-machine)",
       },
+      redirect: "manual",
       signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS),
     });
 
@@ -98,7 +136,13 @@ export async function fetchCaptures(domain: string, fetchImpl: typeof fetch = fe
       );
     }
 
-    return parseCdxPayload(await response.json());
+    let payload: unknown;
+    try {
+      payload = await response.json();
+    } catch {
+      throw new ArchiveProviderError("MALFORMED_ARCHIVE_RESPONSE", "The archive returned invalid JSON.");
+    }
+    return parseCdxPayload(payload);
   } catch (error) {
     if (error instanceof ArchiveProviderError) {
       throw error;
