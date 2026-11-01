@@ -50,15 +50,22 @@ export async function handleRequest(
     if (request.method !== "POST") {
       return errorResponse("METHOD_NOT_ALLOWED", "Only POST requests are supported.", 405, { Allow: "POST" });
     }
-    if (!env.SCREENSHOT_ACCESS_TOKEN || !env.BROWSER) {
+    if (!env.SCREENSHOT_ACCESS_TOKEN) {
       return errorResponse(
         "SCREENSHOT_DISABLED",
-        "Screenshot service is disabled until the owner configures its secret and browser binding.",
+        "The active Worker deployment cannot access SCREENSHOT_ACCESS_TOKEN. Check its exact secret name and deploy it to Production.",
         503,
       );
     }
     if (!(await tokensMatch(request.headers.get("X-Screenshot-Token"), env.SCREENSHOT_ACCESS_TOKEN))) {
       return errorResponse("SCREENSHOT_UNAUTHORIZED", "Screenshot access is restricted to the owner.", 401);
+    }
+    if (!env.BROWSER) {
+      return errorResponse(
+        "SCREENSHOT_BROWSER_UNAVAILABLE",
+        "The active Worker deployment cannot access the BROWSER binding. Check the production version bindings.",
+        503,
+      );
     }
 
     let payload: unknown;
