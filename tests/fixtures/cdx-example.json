@@ -1,0 +1,27 @@
+[
+  ["timestamp", "original", "statuscode", "mimetype", "digest", "length"],
+  [
+    "20020120142510",
+    "http://example.com:80/",
+    "200",
+    "text/html",
+    "HT2DYGA5UKZCPBSFVCV3JOBXGW2G5UUA",
+    "1792"
+  ],
+  [
+    "20020328012821",
+    "http://www.example.com:80/",
+    "200",
+    "text/html",
+    "UY3I2DT2AMWAY6DECFCFYMT5ZOTFHUCH",
+    "481"
+  ],
+  [
+    "20020524041628",
+    "http://www.example.com:80/",
+    "200",
+    "text/html",
+    "UY3I2DT2AMWAY6DECFCFYMT5ZOTFHUCH",
+    "481"
+  ]
+]

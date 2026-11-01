@@ -1,0 +1,96 @@
+import { describe, expect, it } from "vitest";
+
+import type { CapturesResponse } from "../src/shared/capture-types";
+import fixture from "./fixtures/cdx-example.json";
+import { handleRequest } from "../src/worker/index";
+
+const request = (path: string, init?: RequestInit) => new Request(`https://iam.test${path}`, init);
+
+describe("Worker API", () => {
+  it("reports health without contacting the archive", async () => {
+    const failFetch: typeof fetch = async () => {
+      throw new Error("archive fetch must not run");
+    };
+
+    const response = await handleRequest(request("/api/health"), failFetch);
+
+    expect(response.status).toBe(200);
+    await expect(response.json()).resolves.toEqual({ status: "ok" });
+  });
+
+  it("rejects invalid input before contacting the archive", async () => {
+    const failFetch: typeof fetch = async () => {
+      throw new Error("archive fetch must not run");
+    };
+
+    const response = await handleRequest(request("/api/captures?domain=localhost"), failFetch);
+
+    expect(response.status).toBe(400);
+    await expect(response.json()).resolves.toMatchObject({ error: { code: "PRIVATE_HOST" } });
+  });
+
+  it.each(["http%3A%2F%2Fexample.com%3A80", "router.home.arpa"])(
+    "rejects protected input %s before contacting the archive",
+    async (domain) => {
+      const failFetch: typeof fetch = async () => {
+        throw new Error("archive fetch must not run");
+      };
+
+      const response = await handleRequest(request(`/api/captures?domain=${domain}`), failFetch);
+
+      expect(response.status).toBe(400);
+    },
+  );
+
+  it("returns normalized live-source capture metadata", async () => {
+    const fakeFetch: typeof fetch = async () => Response.json(fixture);
+
+    const response = await handleRequest(request("/api/captures?domain=https%3A%2F%2FExample.com%2Fpath"), fakeFetch);
+    const body = (await response.json()) as CapturesResponse;
+
+    expect(response.status).toBe(200);
+    expect(response.headers.get("cache-control")).toBe("public, max-age=300, s-maxage=86400");
+    expect(body).toMatchObject({
+      domain: "example.com",
+      source: "internet-archive-cdx",
+    });
+    expect(body.captures).toHaveLength(3);
+    expect(body.captures[0]).toMatchObject({ timestamp: "20020120142510" });
+  });
+
+  it("returns a successful empty capture response when CDX has no matches", async () => {
+    const fakeFetch: typeof fetch = async () => Response.json([]);
+
+    const response = await handleRequest(request("/api/captures?domain=example.com"), fakeFetch);
+    const body = (await response.json()) as CapturesResponse;
+
+    expect(response.status).toBe(200);
+    expect(body.captures).toEqual([]);
+  });
+
+  it.each([
+    [429, 503, "ARCHIVE_RATE_LIMITED"],
+    [503, 502, "ARCHIVE_UNAVAILABLE"],
+  ])("maps archive HTTP %s to API HTTP %s", async (upstreamStatus, apiStatus, code) => {
+    const fakeFetch: typeof fetch = async () => new Response("upstream error", { status: upstreamStatus });
+
+    const response = await handleRequest(request("/api/captures?domain=example.com"), fakeFetch);
+
+    expect(response.status).toBe(apiStatus);
+    await expect(response.json()).resolves.toMatchObject({ error: { code } });
+  });
+
+  it("rejects unsupported API methods", async () => {
+    const response = await handleRequest(request("/api/health", { method: "POST" }));
+
+    expect(response.status).toBe(405);
+    expect(response.headers.get("allow")).toBe("GET");
+  });
+
+  it("returns JSON 404 for an unknown API route", async () => {
+    const response = await handleRequest(request("/api/missing"));
+
+    expect(response.status).toBe(404);
+    await expect(response.json()).resolves.toMatchObject({ error: { code: "NOT_FOUND" } });
+  });
+});
