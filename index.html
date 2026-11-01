@@ -11,8 +11,8 @@
   </head>
   <body>
     <header class="site-header">
-      <a class="wordmark" href="/" aria-label="Internet Archaeology Machine home">IAM / Phase 1A</a>
-      <span class="status-chip">One year at a time</span>
+      <a class="wordmark" href="/" aria-label="Internet Archaeology Machine home">IAM / Phase 1B</a>
+      <span class="status-chip">Then vs now</span>
     </header>
 
     <main>
@@ -20,8 +20,8 @@
         <p class="eyebrow">A small instrument for old webs</p>
         <h1 id="page-title">What survived?</h1>
         <p class="lede">
-          Enter a public domain, then choose one year to check. Years begin as unverified and the machine makes only the
-          request you select—nothing more, and no invented history.
+          Enter a public domain, then verify up to two years for a side-by-side comparison of their archive entry points.
+          The machine makes only the requests you select—nothing more, and no invented history.
         </p>
 
         <form id="search-form" class="search-form">
@@ -50,10 +50,13 @@
           <p class="eyebrow">On-demand year explorer</p>
           <h2 id="results-heading">Years to check</h2>
         </div>
-        <p class="timeline-note">Every year starts as “Not checked.” Selecting one year sends one bounded archive request.</p>
+        <p class="timeline-note">
+          Every year starts as “Not checked.” Selecting one year sends one bounded archive request. Two verified captures
+          can be compared; this does not compare the visual contents of the pages.
+        </p>
         <ol id="year-list" class="year-list"></ol>
         <section id="selected-capture" class="selected-capture" aria-labelledby="capture-heading" hidden>
-          <h3 id="capture-heading">Selected capture</h3>
+          <h3 id="capture-heading">Verified comparison</h3>
           <ul id="capture-list" class="capture-list"></ul>
         </section>
       </section>

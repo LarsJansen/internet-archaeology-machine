@@ -10,11 +10,17 @@
 
 The production deployment and authentic CDX access were verified by the project owner.
 
-## Phase 1A — current pull request
+## Phase 1A — complete
 
 - Show years from 1996 through the current year as explicitly not checked.
 - Send one bounded CDX query only when a visitor chooses a year.
 - Show one verified capture, no returned capture, timeout, rate limit, or upstream failure without scanning other years.
+
+## Phase 1B — current pull request
+
+- Retain up to two verified captures for an honest side-by-side metadata comparison.
+- Reuse checked-year results for the active domain and clear stale state when the domain changes.
+- Let visitors replace either compared year without changing the bounded archive API.
 
 ## Full Phase 1 timeline — not implemented
 
@@ -22,4 +28,4 @@ Normalize homepage variants, merge/de-duplicate capture metadata, group authenti
 
 ## Later phases — not implemented
 
-Capture comparison, citations, exportable discovery cards, curated examples, and optional experiments such as screenshot or source-code archaeology remain separate, reviewable projects.
+Visual page comparison, citations, exportable discovery cards, curated examples, and optional experiments such as screenshot or source-code archaeology remain separate, reviewable projects.

@@ -18,7 +18,7 @@ The Worker has three small boundaries:
 2. `archive-provider.ts` constructs one fixed-host CDX request, selects six metadata fields, filters to HTTP 200 HTML records, and times out after eight seconds. The original lookup remains capped at five rows; a year-specific lookup adds matching `from` and `to` values and is capped at one row.
 3. `index.ts` maps HTTP routes and turns provider outcomes into explicit JSON responses.
 
-The client creates a year selector without making archive requests. Selecting one year makes one same-origin API request for that year and renders the returned metadata through DOM properties and text nodes. It never injects archive data as HTML or automatically fans requests out across years.
+The client creates a year selector without making archive requests. Selecting an unchecked year makes one same-origin API request for that year. Successful and empty results are cached in memory for the active domain, and up to two verified captures can be rendered as a metadata comparison. Changing domains clears that state. The client never injects archive data as HTML or automatically fans requests out across years.
 
 ## Caching
 

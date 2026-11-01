@@ -31,18 +31,33 @@ function errorMessage(value: unknown): string {
     : "The archive request failed.";
 }
 
-function createCaptureItem(document: Document, capture: Capture): HTMLLIElement {
+function createCaptureItem(
+  document: Document,
+  year: number,
+  capture: Capture,
+  onReplace: () => void,
+): HTMLLIElement {
   const item = document.createElement("li");
+  const yearHeading = document.createElement("h4");
   const link = document.createElement("a");
   const metadata = document.createElement("span");
+  const replaceButton = document.createElement("button");
 
+  item.className = "capture-card";
+  yearHeading.textContent = String(year);
   link.href = capture.replayUrl;
   link.target = "_blank";
   link.rel = "noopener noreferrer";
   link.textContent = formatCaptureTimestamp(capture.timestamp);
   metadata.textContent = `${capture.statusCode} · ${capture.mimeType}`;
+  replaceButton.type = "button";
+  replaceButton.className = "replace-capture";
+  replaceButton.dataset.replaceYear = String(year);
+  replaceButton.setAttribute("aria-label", `Replace ${year} in comparison`);
+  replaceButton.textContent = "Replace this year";
+  replaceButton.addEventListener("click", onReplace);
 
-  item.append(link, metadata);
+  item.append(yearHeading, link, metadata, replaceButton);
   return item;
 }
 
@@ -82,6 +97,39 @@ export function initSearch(document: Document, fetchImpl: typeof fetch = fetch):
   }
 
   let requestPending = false;
+  let activeDomain = "";
+  const checkedYears = new Map<number, Capture | null>();
+  let comparedCaptures: Array<{ year: number; capture: Capture }> = [];
+
+  const renderComparison = (domain: string) => {
+    captureList.replaceChildren();
+    for (const compared of comparedCaptures) {
+      captureList.append(
+        createCaptureItem(document, compared.year, compared.capture, () => {
+          comparedCaptures = comparedCaptures.filter(({ year }) => year !== compared.year);
+          renderComparison(domain);
+          status.textContent = `Choose another year to replace ${compared.year}.`;
+          yearList.querySelector<HTMLButtonElement>(`button[data-year="${compared.year}"]`)?.focus();
+        }),
+      );
+    }
+    captureHeading.textContent = `Verified captures for ${domain}`;
+    selectedCapture.hidden = comparedCaptures.length === 0;
+  };
+
+  const addToComparison = (year: number, capture: Capture, domain: string) => {
+    if (comparedCaptures.some((compared) => compared.year === year)) {
+      status.textContent = `${year} is already in the comparison.`;
+      return;
+    }
+    if (comparedCaptures.length >= 2) {
+      status.textContent = "The comparison already has two captures. Replace either year before adding another.";
+      return;
+    }
+    comparedCaptures.push({ year, capture });
+    renderComparison(domain);
+    status.textContent = `Capture found for ${domain} in ${year}.`;
+  };
 
   form.addEventListener("submit", (event) => {
     event.preventDefault();
@@ -89,20 +137,33 @@ export function initSearch(document: Document, fetchImpl: typeof fetch = fetch):
 
     const domain = input.value.trim();
     const currentYear = new Date().getUTCFullYear();
+    if (domain !== activeDomain) {
+      checkedYears.clear();
+      comparedCaptures = [];
+      activeDomain = domain;
+    }
     yearList.replaceChildren();
-    captureList.replaceChildren();
-    selectedCapture.hidden = true;
+    renderComparison(domain);
 
     const checkYear = async (year: number, yearButton: HTMLButtonElement) => {
       if (requestPending) return;
+      if (checkedYears.has(year)) {
+        const cachedCapture = checkedYears.get(year);
+        if (cachedCapture) {
+          setYearState(yearButton, "Capture found", "found");
+          addToComparison(year, cachedCapture, domain);
+        } else {
+          setYearState(yearButton, "No capture returned", "empty");
+          status.textContent = `No indexed homepage capture was returned for ${domain} in ${year}.`;
+        }
+        return;
+      }
       requestPending = true;
       const allYearButtons = Array.from(yearList.querySelectorAll<HTMLButtonElement>("button"));
       allYearButtons.forEach((button) => (button.disabled = true));
       formButton.disabled = true;
       setYearState(yearButton, "Checking…", "checking");
       status.textContent = `Checking ${domain} in ${year}…`;
-      captureList.replaceChildren();
-      selectedCapture.hidden = true;
 
       try {
         const response = await fetchImpl(
@@ -122,17 +183,16 @@ export function initSearch(document: Document, fetchImpl: typeof fetch = fetch):
           return;
         }
         if (payload.captures.length === 0) {
+          checkedYears.set(year, null);
           setYearState(yearButton, "No capture returned", "empty");
           status.textContent = `No indexed homepage capture was returned for ${payload.domain} in ${year}.`;
           return;
         }
 
         const capture = payload.captures[0];
-        captureList.append(createCaptureItem(document, capture));
-        captureHeading.textContent = `${year} capture for ${payload.domain}`;
-        selectedCapture.hidden = false;
+        checkedYears.set(year, capture);
         setYearState(yearButton, "Capture found", "found");
-        status.textContent = `Capture found for ${payload.domain} in ${year}.`;
+        addToComparison(year, capture, payload.domain);
       } catch {
         setYearState(yearButton, "Check failed", "error");
         status.textContent = "The archive could not be reached. Try again later.";
@@ -161,6 +221,14 @@ export function initSearch(document: Document, fetchImpl: typeof fetch = fetch):
       yearButton.addEventListener("click", () => void checkYear(year, yearButton));
       item.append(yearButton);
       yearList.append(item);
+      if (checkedYears.has(year)) {
+        const cachedCapture = checkedYears.get(year);
+        setYearState(
+          yearButton,
+          cachedCapture ? "Capture found" : "No capture returned",
+          cachedCapture ? "found" : "empty",
+        );
+      }
     }
 
     heading.textContent = `Years to check for ${domain}`;
