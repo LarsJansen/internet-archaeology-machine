@@ -160,7 +160,9 @@ export function initSearch(document: Document, fetchImpl: typeof fetch = fetch):
       }
       requestPending = true;
       const allYearButtons = Array.from(yearList.querySelectorAll<HTMLButtonElement>("button"));
+      const replaceButtons = Array.from(captureList.querySelectorAll<HTMLButtonElement>(".replace-capture"));
       allYearButtons.forEach((button) => (button.disabled = true));
+      replaceButtons.forEach((button) => (button.disabled = true));
       formButton.disabled = true;
       setYearState(yearButton, "Checking…", "checking");
       status.textContent = `Checking ${domain} in ${year}…`;
@@ -199,6 +201,7 @@ export function initSearch(document: Document, fetchImpl: typeof fetch = fetch):
       } finally {
         requestPending = false;
         allYearButtons.forEach((button) => (button.disabled = false));
+        replaceButtons.forEach((button) => (button.disabled = false));
         formButton.disabled = false;
       }
     };

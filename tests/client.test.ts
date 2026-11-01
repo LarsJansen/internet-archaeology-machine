@@ -216,6 +216,40 @@ describe("on-demand year explorer", () => {
     expect(window.document.querySelector('[data-replace-year="2003"]')).not.toBeNull();
   });
 
+  it("keeps replacement controls unavailable until an outstanding year check finishes", async () => {
+    const window = createPage();
+    let requestCount = 0;
+    let resolvePending!: (response: Response) => void;
+    const fakeFetch: typeof fetch = async (input) => {
+      requestCount += 1;
+      const year = Number(new URL(String(input), "https://iam.test").searchParams.get("year"));
+      if (requestCount === 3) {
+        return new Promise((resolve) => (resolvePending = resolve));
+      }
+      return Response.json(capturePayload(year));
+    };
+    initSearch(window.document as unknown as Document, fakeFetch);
+    (window.document.querySelector("#domain") as unknown as HTMLInputElement).value = "example.com";
+    await submit(window);
+    await clickYear(window, 2002);
+    await clickYear(window, 2003);
+
+    await clickYear(window, 2004);
+    const replaceButton = window.document.querySelector(
+      '[data-replace-year="2002"]',
+    ) as unknown as HTMLButtonElement;
+
+    expect(replaceButton.disabled).toBe(true);
+    replaceButton.click();
+    expect(window.document.querySelector('[data-replace-year="2002"]')).not.toBeNull();
+
+    resolvePending(Response.json(capturePayload(2004)));
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    expect(replaceButton.disabled).toBe(false);
+    replaceButton.click();
+    expect(window.document.activeElement?.getAttribute("data-year")).toBe("2002");
+  });
+
   it("clears compared captures and checked-year cache when the domain changes", async () => {
     const window = createPage();
     let requestCount = 0;
