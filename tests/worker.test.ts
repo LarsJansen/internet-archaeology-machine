@@ -112,6 +112,24 @@ describe("Worker API", () => {
     expect(browserCalls).toBe(0);
   });
 
+  it("reports a missing Browser Run binding only after owner authentication and before archive access", async () => {
+    let archiveCalls = 0;
+    const fakeFetch: typeof fetch = async () => {
+      archiveCalls += 1;
+      throw new Error("must not fetch archive without browser binding");
+    };
+
+    const response = await handleRequest(screenshotRequest("owner-secret"), fakeFetch, {
+      SCREENSHOT_ACCESS_TOKEN: "owner-secret",
+    });
+
+    expect(response.status).toBe(503);
+    await expect(response.json()).resolves.toMatchObject({
+      error: { code: "SCREENSHOT_BROWSER_UNAVAILABLE" },
+    });
+    expect(archiveCalls).toBe(0);
+  });
+
   it.each([undefined, "wrong-token"])(
     "rejects screenshot token %s before any upstream request",
     async (token) => {
