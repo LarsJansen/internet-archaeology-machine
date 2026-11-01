@@ -1,0 +1,251 @@
+:root {
+  color-scheme: dark;
+  font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  color: #e9f2ed;
+  background: #08110f;
+  font-synthesis: none;
+  --ink-muted: #9db1a9;
+  --line: #28433a;
+  --panel: #0e1c18;
+  --signal: #b8f171;
+  --signal-dark: #16230d;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+body {
+  min-width: 320px;
+  min-height: 100vh;
+  margin: 0;
+  background:
+    linear-gradient(rgba(184, 241, 113, 0.025) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(184, 241, 113, 0.025) 1px, transparent 1px),
+    #08110f;
+  background-size: 32px 32px;
+}
+
+a {
+  color: var(--signal);
+}
+
+.site-header,
+main,
+footer {
+  width: min(100% - 2rem, 72rem);
+  margin-inline: auto;
+}
+
+.site-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  min-height: 4.5rem;
+  border-bottom: 1px solid var(--line);
+}
+
+.wordmark {
+  color: #e9f2ed;
+  font-family: "SFMono-Regular", Consolas, "Liberation Mono", monospace;
+  text-decoration: none;
+  letter-spacing: 0.08em;
+}
+
+.status-chip,
+.eyebrow {
+  color: var(--signal);
+  font-family: "SFMono-Regular", Consolas, "Liberation Mono", monospace;
+  font-size: 0.75rem;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+}
+
+.status-chip {
+  padding: 0.35rem 0.55rem;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+}
+
+main {
+  padding-block: clamp(3.5rem, 8vw, 7rem);
+}
+
+.hero {
+  max-width: 55rem;
+}
+
+h1,
+h2,
+p {
+  margin-top: 0;
+}
+
+h1 {
+  max-width: 12ch;
+  margin-bottom: 1rem;
+  font-size: clamp(3rem, 9vw, 6.5rem);
+  line-height: 0.92;
+  letter-spacing: -0.065em;
+}
+
+h2 {
+  font-size: clamp(1.4rem, 3vw, 2rem);
+  letter-spacing: -0.025em;
+}
+
+.lede {
+  max-width: 46rem;
+  color: var(--ink-muted);
+  font-size: clamp(1.05rem, 2vw, 1.3rem);
+  line-height: 1.65;
+}
+
+.search-form {
+  margin-top: 2.5rem;
+}
+
+.search-form label {
+  display: block;
+  margin-bottom: 0.65rem;
+  font-weight: 700;
+}
+
+.search-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 0.75rem;
+}
+
+input,
+button {
+  min-height: 3.4rem;
+  border: 1px solid var(--line);
+  border-radius: 0.25rem;
+  font: inherit;
+}
+
+input {
+  width: 100%;
+  padding: 0 1rem;
+  color: #e9f2ed;
+  background: #0b1713;
+}
+
+button {
+  padding: 0 1.2rem;
+  color: var(--signal-dark);
+  background: var(--signal);
+  font-weight: 800;
+  cursor: pointer;
+}
+
+button:hover {
+  background: #d0ff96;
+}
+
+button:disabled {
+  cursor: wait;
+  opacity: 0.65;
+}
+
+input:focus-visible,
+button:focus-visible,
+a:focus-visible {
+  outline: 3px solid #f2ba65;
+  outline-offset: 3px;
+}
+
+.field-help,
+.search-status,
+.caveat p,
+footer {
+  color: var(--ink-muted);
+}
+
+.field-help {
+  margin-top: 0.65rem;
+  font-size: 0.9rem;
+}
+
+.search-status {
+  min-height: 1.5rem;
+  margin-top: 1.5rem;
+}
+
+.results,
+.caveat {
+  margin-top: 4rem;
+  padding: clamp(1.25rem, 4vw, 2rem);
+  border: 1px solid var(--line);
+  background: var(--panel);
+}
+
+.capture-list {
+  display: grid;
+  gap: 0;
+  margin: 1.5rem 0 0;
+  padding: 0;
+  list-style: none;
+}
+
+.capture-list li {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 1rem;
+  padding-block: 1rem;
+  border-top: 1px solid var(--line);
+}
+
+.capture-list a {
+  font-weight: 750;
+}
+
+.capture-list span {
+  color: var(--ink-muted);
+  font-family: "SFMono-Regular", Consolas, "Liberation Mono", monospace;
+  font-size: 0.8rem;
+}
+
+.caveat {
+  max-width: 55rem;
+  border-left: 4px solid #f2ba65;
+}
+
+.caveat p {
+  max-width: 48rem;
+  margin-bottom: 0;
+  line-height: 1.65;
+}
+
+footer {
+  padding-block: 2rem;
+  border-top: 1px solid var(--line);
+  font-size: 0.9rem;
+}
+
+footer p {
+  margin-bottom: 0;
+}
+
+[hidden] {
+  display: none !important;
+}
+
+@media (max-width: 38rem) {
+  .search-row {
+    grid-template-columns: 1fr;
+  }
+
+  .capture-list li {
+    align-items: flex-start;
+    flex-direction: column;
+  }
+}
+
+@media (prefers-reduced-motion: no-preference) {
+  button {
+    transition: background-color 140ms ease, opacity 140ms ease;
+  }
+}
