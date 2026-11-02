@@ -191,7 +191,7 @@ describe("on-demand year explorer", () => {
     expect((window.document.querySelector("#screenshot-token") as unknown as HTMLInputElement).value).toBe("");
     const image = window.document.querySelector("#screenshot-image") as unknown as HTMLImageElement;
     expect(image.src).toMatch(/^blob:/);
-    expect(image.alt).toBe("Screenshot of the archived example.com homepage capture from 2002");
+    expect(image.alt).toBe("Wayback replay screenshot requested for example.com in 2002; the replay may redirect to a different archived date");
     expect(window.document.querySelector("#screenshot-result")?.hasAttribute("hidden")).toBe(false);
     expect(window.document.querySelectorAll("#capture-list li")).toHaveLength(1);
   });
