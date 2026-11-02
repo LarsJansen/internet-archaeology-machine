@@ -101,6 +101,9 @@ export async function handleRequest(
       }
       const browserResponse = await env.BROWSER.quickAction("screenshot", {
         url: captures[0].replayUrl,
+        // Hide only the Wayback UI overlay, not the archived page itself.
+        // Cloudflare injects this CSS into the replay before taking the screenshot.
+        addStyleTag: [{ content: "#wm-ipp-base, #donato { display: none !important; }" }],
         viewport: { width: 1280, height: 900 },
         gotoOptions: { waitUntil: "domcontentloaded", timeout: 30_000 },
         bestAttempt: true,

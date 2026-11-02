@@ -192,6 +192,7 @@ describe("Worker API", () => {
     expect(actionName).toBe("screenshot");
     expect(actionOptions).toEqual({
       url: "https://web.archive.org/web/20020120142510/http://example.com:80/",
+      addStyleTag: [{ content: "#wm-ipp-base, #donato { display: none !important; }" }],
       viewport: { width: 1280, height: 900 },
       gotoOptions: { waitUntil: "domcontentloaded", timeout: 30_000 },
       bestAttempt: true,
