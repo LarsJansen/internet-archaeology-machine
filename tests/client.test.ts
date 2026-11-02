@@ -247,7 +247,7 @@ describe("on-demand year explorer", () => {
 
       expect(window.document.querySelector("#screenshot-result")?.hasAttribute("hidden")).toBe(false);
       expect(window.document.querySelector("#status")?.textContent).toBe(
-        "Screenshot captured for example.com in 2002.",
+        "Screenshot saved for everyone to view: example.com in 2002.",
       );
     },
   );
