@@ -3,6 +3,9 @@ import { ArchiveProviderError, fetchCaptures, fetchYearCaptures, fetchIndexedYea
 import { normalizeDomain } from "./domain-validation";
 import { screenshotImage, screenshotKey, screenshotMetadata } from "./screenshot-store";
 import { createOwnerSession, verifyOwnerSession, ownerSessionCookie, clearOwnerSessionCookie, hasValidRequestOrigin } from "./owner-session";
+import { ScreenshotBudget } from "./screenshot-budget";
+
+export { ScreenshotBudget };
 
 const ARCHIVE_LIMITATION =
   "Results are a small sample of surviving indexed homepage captures. Gaps do not prove the site was offline.";
@@ -12,6 +15,8 @@ export interface Env {
   BROWSER: BrowserRun;
   SCREENSHOT_ACCESS_TOKEN?: string;
   SCREENSHOTS?: R2Bucket;
+  SCREENSHOT_BUDGET?: DurableObjectNamespace<ScreenshotBudget>;
+  PUBLIC_SCREENSHOTS_ENABLED?: string;
 }
 
 function json(body: unknown, init: ResponseInit = {}): Response {
@@ -40,6 +45,59 @@ async function tokensMatch(provided: string | null, expected: string): Promise<b
     difference |= providedBytes[index] ^ expectedBytes[index];
   }
   return difference === 0;
+}
+
+async function renderAndSave(
+  env: Partial<Env>, domain: string, year: number,
+  capture: Awaited<ReturnType<typeof fetchYearCaptures>>[number], key: string,
+): Promise<Response> {
+  if (!env.BROWSER) {
+    return errorResponse("SCREENSHOT_BROWSER_UNAVAILABLE", "Screenshot rendering is temporarily unavailable.", 503);
+  }
+  if (!env.SCREENSHOTS) {
+    return errorResponse("SCREENSHOT_CACHE_UNAVAILABLE", "Screenshot storage is temporarily unavailable.", 503);
+  }
+  const browserResponse = await env.BROWSER.quickAction("screenshot", {
+    url: capture.replayUrl,
+    // Hide only the Wayback UI overlay, not the archived page itself.
+    addStyleTag: [{ content: "#wm-ipp-base, #donato { display: none !important; }" }],
+    viewport: { width: 1280, height: 900 },
+    gotoOptions: { waitUntil: "domcontentloaded", timeout: 30_000 },
+    bestAttempt: true,
+    cacheTTL: 0,
+    screenshotOptions: { type: "png", fullPage: false },
+  });
+  if (browserResponse.status === 429) {
+    return errorResponse(
+      "SCREENSHOT_RATE_LIMITED", "The screenshot service is busy. Please try again later.",
+      429, { "Retry-After": browserResponse.headers.get("Retry-After") ?? "60" },
+    );
+  }
+  if (!browserResponse.ok || !browserResponse.headers.get("Content-Type")?.startsWith("image/png")) {
+    return errorResponse("SCREENSHOT_UNAVAILABLE", "The archived page could not be captured. Try another year.", 502);
+  }
+  const png = await browserResponse.arrayBuffer();
+  if (png.byteLength === 0 || png.byteLength > 8 * 1024 * 1024) {
+    return errorResponse("SCREENSHOT_UNAVAILABLE", "The screenshot image was empty or too large.", 502);
+  }
+  try {
+    await env.SCREENSHOTS.put(key, png, {
+      httpMetadata: { contentType: "image/png" },
+      customMetadata: screenshotMetadata(domain, year, capture),
+    });
+  } catch {
+    return errorResponse("SCREENSHOT_STORAGE_ERROR", "The screenshot could not be saved. Try again later.", 503);
+  }
+  return screenshotImage(png, "generated");
+}
+
+async function visitorFingerprint(request: Request, secret: string): Promise<string | null> {
+  const ip = request.headers.get("CF-Connecting-IP");
+  if (!ip || ip.length > 64) return null;
+  const encoder = new TextEncoder();
+  const key = await crypto.subtle.importKey("raw", encoder.encode(secret), { name: "HMAC", hash: "SHA-256" }, false, ["sign"]);
+  const bytes = new Uint8Array(await crypto.subtle.sign("HMAC", key, encoder.encode("iam-public-generation:" + ip)));
+  return Array.from(bytes, (byte) => byte.toString(16).padStart(2, "0")).join("");
 }
 
 export async function handleRequest(
@@ -79,6 +137,108 @@ export async function handleRequest(
     return json({ authenticated: false }, {
       headers: { "Cache-Control": "no-store", "Set-Cookie": clearOwnerSessionCookie() },
     });
+  }
+
+  if (url.pathname === "/api/screenshot/request") {
+    if (request.method !== "POST") {
+      return errorResponse("METHOD_NOT_ALLOWED", "Only POST requests are supported.", 405, { Allow: "POST" });
+    }
+    if (!hasValidRequestOrigin(request)) {
+      return errorResponse("INVALID_ORIGIN", "Screenshot requests must come from this website.", 403);
+    }
+    if (!request.headers.get("Content-Type")?.toLowerCase().startsWith("application/json")) {
+      return errorResponse("INVALID_SCREENSHOT_REQUEST", "Submit a valid JSON screenshot request.", 400);
+    }
+    const size = Number(request.headers.get("Content-Length") ?? 0);
+    if (size > 1024) {
+      return errorResponse("INVALID_SCREENSHOT_REQUEST", "The screenshot request is too large.", 413);
+    }
+    let payload: unknown;
+    try { payload = await request.json(); } catch {
+      return errorResponse("INVALID_SCREENSHOT_REQUEST", "Submit a domain, year and archive timestamp.", 400);
+    }
+    if (!payload || typeof payload !== "object") {
+      return errorResponse("INVALID_SCREENSHOT_REQUEST", "Submit a domain, year and archive timestamp.", 400);
+    }
+    const candidate = payload as { domain?: unknown; year?: unknown; timestamp?: unknown };
+    if (typeof candidate.domain !== "string" || typeof candidate.year !== "number" || typeof candidate.timestamp !== "string") {
+      return errorResponse("INVALID_SCREENSHOT_REQUEST", "Submit a domain, year and archive timestamp.", 400);
+    }
+    const validated = normalizeDomain(candidate.domain);
+    if (!validated.ok) return errorResponse(validated.code, validated.message, 400);
+    if (
+      !Number.isInteger(candidate.year) || candidate.year < FIRST_ARCHIVE_YEAR ||
+      candidate.year > new Date().getUTCFullYear() ||
+      !/^\d{14}$/.test(candidate.timestamp) || !candidate.timestamp.startsWith(String(candidate.year))
+    ) {
+      return errorResponse("INVALID_SCREENSHOT_REQUEST", "Choose a valid indexed capture year and timestamp.", 400);
+    }
+    if (!env.SCREENSHOTS) return errorResponse("SCREENSHOT_CACHE_UNAVAILABLE", "Screenshot storage is temporarily unavailable.", 503);
+    const key = screenshotKey(validated.domain, candidate.timestamp);
+    try {
+      const stored = await env.SCREENSHOTS.get(key);
+      if (stored) return screenshotImage(stored.body, "cached");
+    } catch {
+      return errorResponse("SCREENSHOT_STORAGE_ERROR", "Screenshot storage is temporarily unavailable.", 503);
+    }
+    if (env.PUBLIC_SCREENSHOTS_ENABLED !== "true") {
+      return errorResponse("PUBLIC_SCREENSHOTS_DISABLED", "New public screenshot requests are temporarily paused.", 503);
+    }
+    if (!env.SCREENSHOT_BUDGET || !env.BROWSER || !env.SCREENSHOT_ACCESS_TOKEN) {
+      return errorResponse("PUBLIC_SCREENSHOTS_UNAVAILABLE", "New screenshot requests are temporarily unavailable.", 503);
+    }
+    const visitor = await visitorFingerprint(request, env.SCREENSHOT_ACCESS_TOKEN);
+    if (!visitor) {
+      return errorResponse("VISITOR_UNVERIFIED", "We could not verify this visitor request. Try again later.", 403);
+    }
+
+    let lease: string;
+    const gate = env.SCREENSHOT_BUDGET.getByName("public-screenshot-gate-v1");
+    try {
+      const admission = await gate.reserve(key, visitor, false);
+      if (!admission.allowed) {
+        const messages: Record<string, string> = {
+          SITE_BUDGET_EXHAUSTED: "Today's public screenshot allowance is full. Saved screenshots are still available.",
+          VISITOR_BUDGET_EXHAUSTED: "You've reached today's screenshot allowance. Try again tomorrow.",
+          SCREENSHOT_BUSY: "Another screenshot is being captured. Try again shortly.",
+          SCREENSHOT_COOLDOWN: "Screenshots are being spaced out to protect the archive. Try again shortly.",
+        };
+        return errorResponse(admission.code, messages[admission.code], 429, {
+          "Retry-After": String(admission.retryAfter),
+        });
+      }
+      lease = admission.lease;
+    } catch {
+      return errorResponse("PUBLIC_SCREENSHOTS_UNAVAILABLE", "Screenshot limits are temporarily unavailable.", 503);
+    }
+
+    try {
+      // Recheck after acquiring the global lease: another visitor may have saved
+      // exactly this capture between our first R2 read and admission.
+      const existing = await env.SCREENSHOTS.get(key);
+      if (existing) return screenshotImage(existing.body, "cached");
+
+      const captures = await fetchYearCaptures(validated.domain, candidate.year, fetchImpl);
+      if (captures.length === 0) {
+        return errorResponse("SCREENSHOT_CAPTURE_NOT_FOUND", "No verified homepage capture is available for that year.", 404);
+      }
+      if (captures[0].timestamp !== candidate.timestamp) {
+        return errorResponse(
+          "SCREENSHOT_CAPTURE_CHANGED",
+          "The archive's selected capture has changed. Check this year again before requesting a screenshot.",
+          409,
+        );
+      }
+      return await renderAndSave(env, validated.domain, candidate.year, captures[0], key);
+    } catch (error) {
+      if (error instanceof ArchiveProviderError) {
+        if (error.code === "ARCHIVE_RATE_LIMITED") return errorResponse(error.code, error.message, 503, { "Retry-After": "60" });
+        return errorResponse(error.code, error.message, 502);
+      }
+      return errorResponse("SCREENSHOT_UNAVAILABLE", "The archived page could not be captured. Try another year.", 502);
+    } finally {
+      try { await gate.release(lease); } catch { /* Lease times out after 90 seconds even after failures. */ }
+    }
   }
 
   if (url.pathname === "/api/screenshot") {
@@ -177,48 +337,7 @@ export async function handleRequest(
         return errorResponse("SCREENSHOT_STORAGE_ERROR", "Could not check screenshot storage safely.", 503);
       }
       if (existing) return screenshotImage(existing.body, "cached");
-      if (!env.BROWSER) {
-        return errorResponse(
-          "SCREENSHOT_BROWSER_UNAVAILABLE",
-          "The active Worker deployment cannot access the BROWSER binding. Check the production version bindings.",
-          503,
-        );
-      }
-
-      const browserResponse = await env.BROWSER.quickAction("screenshot", {
-        url: capture.replayUrl,
-        // Hide only the Wayback UI overlay, not the archived page itself.
-        addStyleTag: [{ content: "#wm-ipp-base, #donato { display: none !important; }" }],
-        viewport: { width: 1280, height: 900 },
-        gotoOptions: { waitUntil: "domcontentloaded", timeout: 30_000 },
-        bestAttempt: true,
-        cacheTTL: 0,
-        screenshotOptions: { type: "png", fullPage: false },
-      });
-      if (browserResponse.status === 429) {
-        return errorResponse(
-          "SCREENSHOT_RATE_LIMITED",
-          "Cloudflare Browser Run is rate limited. Wait before trying again.",
-          429,
-          { "Retry-After": browserResponse.headers.get("Retry-After") ?? "10" },
-        );
-      }
-      if (!browserResponse.ok || !browserResponse.headers.get("Content-Type")?.startsWith("image/png")) {
-        return errorResponse("SCREENSHOT_UNAVAILABLE", "Cloudflare Browser Run could not capture this replay.", 502);
-      }
-      const png = await browserResponse.arrayBuffer();
-      if (png.byteLength === 0 || png.byteLength > 8 * 1024 * 1024) {
-        return errorResponse("SCREENSHOT_UNAVAILABLE", "The screenshot image was empty or too large.", 502);
-      }
-      try {
-        await env.SCREENSHOTS.put(key, png, {
-          httpMetadata: { contentType: "image/png" },
-          customMetadata: screenshotMetadata(validation.domain, candidate.year, capture),
-        });
-      } catch {
-        return errorResponse("SCREENSHOT_STORAGE_ERROR", "The screenshot was rendered but could not be saved.", 503);
-      }
-      return screenshotImage(png, "generated");
+      return await renderAndSave(env, validation.domain, candidate.year, capture, key);
     } catch (error) {
       if (error instanceof ArchiveProviderError) {
         if (error.code === "ARCHIVE_RATE_LIMITED") {
