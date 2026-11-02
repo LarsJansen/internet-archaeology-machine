@@ -269,7 +269,7 @@ export function initSearch(document: Document, fetchImpl: typeof fetch = fetch):
         return;
       }
       if (slot.image) {
-        slot.image.src = objectUrl;
+        if (slot.image.src !== objectUrl) slot.image.src = objectUrl;
         slot.image.alt = `Wayback replay screenshot requested for ${domain} in ${selected.year}; the replay may redirect to a different archived date`;
       }
       if (slot.caption) slot.caption.textContent = `Replay requested for ${domain} in ${selected.year}. Wayback may redirect to another date.`;
@@ -284,6 +284,15 @@ export function initSearch(document: Document, fetchImpl: typeof fetch = fetch):
     if (!comparedCaptures.every(({ year }, i) => screenshotObjectUrls.has(year) && images[i].complete && images[i].naturalWidth > 0)) return null;
     return comparedCaptures.map((compared, i) => ({ ...compared, image: images[i] }));
   };
+
+  // PNG export only activates after both saved images have actually decoded.
+  const refreshExportAvailability = () => {
+    if (downloadDiscovery) downloadDiscovery.disabled = exportEntries() === null;
+  };
+  screenshotImage.addEventListener("load", refreshExportAvailability);
+  secondImage?.addEventListener("load", refreshExportAvailability);
+  screenshotImage.addEventListener("error", refreshExportAvailability);
+  secondImage?.addEventListener("error", refreshExportAvailability);
 
   downloadDiscovery?.addEventListener("click", () => {
     const entries = exportEntries();
