@@ -8,10 +8,32 @@
     "remote": true
   },
   "r2_buckets": [
-    { "binding": "SCREENSHOTS", "bucket_name": "internet-archaeology-machine-screenshots" }
+    {
+      "binding": "SCREENSHOTS",
+      "bucket_name": "internet-archaeology-machine-screenshots"
+    }
   ],
   "assets": {
     "directory": "./dist",
-    "run_worker_first": ["/api/*"]
+    "run_worker_first": [
+      "/api/*"
+    ]
+  },
+  "durable_objects": {
+    "bindings": [
+      {
+        "name": "SCREENSHOT_BUDGET",
+        "class_name": "ScreenshotBudget"
+      }
+    ]
+  },
+  "exports": {
+    "ScreenshotBudget": {
+      "type": "durable-object",
+      "storage": "sqlite"
+    }
+  },
+  "vars": {
+    "PUBLIC_SCREENSHOTS_ENABLED": "true"
   }
 }
