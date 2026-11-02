@@ -3,9 +3,7 @@ import { ArchiveProviderError, fetchCaptures, fetchYearCaptures, fetchIndexedYea
 import { normalizeDomain } from "./domain-validation";
 import { screenshotImage, screenshotKey, screenshotMetadata } from "./screenshot-store";
 import { createOwnerSession, verifyOwnerSession, ownerSessionCookie, clearOwnerSessionCookie, hasValidRequestOrigin } from "./owner-session";
-import { ScreenshotBudget } from "./screenshot-budget";
-
-export { ScreenshotBudget };
+import type { ScreenshotBudget } from "./screenshot-budget";
 
 const ARCHIVE_LIMITATION =
   "Results are a small sample of surviving indexed homepage captures. Gaps do not prove the site was offline.";
