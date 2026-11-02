@@ -8,7 +8,12 @@ import { formatCaptureTimestamp, initSearch as initActualSearch } from "../src/c
 // Existing interaction tests assume a few indexed years; wrap the new
 // discovery request so those tests can continue focusing on their own APIs.
 function initSearch(document: Document, fetchImpl: typeof fetch = fetch): void {
+  const access = document.createElement("div");
+  access.innerHTML = `<form id="owner-login-form"><input id="owner-login-token" type="password" /></form>
+    <div id="owner-signed-in" hidden></div><button id="owner-logout-button"></button><p id="owner-auth-status"></p>`;
+  document.body.append(access);
   initActualSearch(document, ((input: RequestInfo | URL, init?: RequestInit) =>
+    String(input) === "/api/owner/session" ? Response.json({ authenticated: true }) :
     String(input).startsWith("/api/years?")
       ? Response.json({
           domain: "example.com",
@@ -36,10 +41,7 @@ function createPage() {
       <section id="selected-capture" hidden>
         <h3 id="capture-heading"></h3>
         <ul id="capture-list"></ul>
-        <div id="screenshot-controls">
-          <label for="screenshot-token">Owner screenshot token</label>
-          <input id="screenshot-token" type="password" autocomplete="off" />
-        </div>
+        <div id="owner-tools" hidden>Curator tools</div>
         <section id="comparison-gallery" hidden>
           <article id="image-panel-first" hidden>
             <h4 id="visual-year-first"></h4>
@@ -58,6 +60,10 @@ function createPage() {
             </section>
           </article>
         </section>
+        <div id="share-card-actions" hidden>
+          <button id="download-discovery" disabled>Download PNG</button>
+          <button id="copy-discovery-sources">Copy sources</button>
+        </div>
       </section>
     </section>
   `;
@@ -192,8 +198,7 @@ describe("on-demand year explorer", () => {
     expect(requested).not.toContain("/api/screenshot");
     expect(window.document.querySelector("#screenshot-result")?.hasAttribute("hidden")).toBe(false);
     expect(window.document.querySelector("#screenshot-result-second")?.hasAttribute("hidden")).toBe(false);
-    expect((window.document.querySelector("#screenshot-token") as unknown as HTMLInputElement).value).toBe("");
-    expect((window.document.querySelector('[data-screenshot-year="2002"]') as unknown as HTMLButtonElement).disabled).toBe(true);
+    expect(window.document.querySelector('[data-screenshot-year="2002"]')).toBeNull();
   });
 
   it("shows only the actual indexed years for a late-launch website", async () => {
@@ -285,7 +290,86 @@ describe("on-demand year explorer", () => {
     expect(window.document.querySelector("#selected-capture")?.hasAttribute("hidden")).toBe(false);
   });
 
-  it("sends the owner token in a header and renders one screenshot for a verified capture", async () => {
+  it("keeps screenshot-generation controls hidden for public visitors", async () => {
+    const window = createPage();
+    const requests: string[] = [];
+    initActualSearch(window.document as unknown as Document, async (input) => {
+      requests.push(String(input));
+      if (String(input).startsWith("/api/years?")) {
+        return Response.json({ domain: "example.com", source: "internet-archive-cdx",
+          years: [2002, 2003], truncated: false, limitation: "Indexed years only." });
+      }
+      const url = new URL(String(input), "https://iam.test");
+      if (url.pathname === "/api/screenshot") return Response.json({ error: { code: "SCREENSHOT_NOT_CACHED" } }, { status: 404 });
+      return Response.json(capturePayload(Number(url.searchParams.get("year"))));
+    });
+    (window.document.querySelector("#domain") as unknown as HTMLInputElement).value = "example.com";
+    await submit(window);
+    await clickYear(window, 2002);
+    expect(window.document.querySelector("#owner-tools")?.hasAttribute("hidden")).toBe(true);
+    expect(window.document.querySelector('[data-screenshot-year="2002"]')).toBeNull();
+    expect(requests.some((url) => url === "/api/screenshot")).toBe(false);
+  });
+
+  it("signs in a curator once, enables generation, and hides controls again on logout", async () => {
+    const window = createPage();
+    const access = window.document.createElement("div");
+    access.innerHTML = `<form id="owner-login-form"><input id="owner-login-token" type="password" /></form>
+    <div id="owner-signed-in" hidden></div><button id="owner-logout-button"></button><p id="owner-auth-status"></p>`;
+    window.document.body.append(access);
+    const calls: string[] = [];
+    initActualSearch(window.document as unknown as Document, async (input, init) => {
+      calls.push(String(input));
+      if (String(input) === "/api/owner/session") return Response.json({ authenticated: false });
+      if (String(input) === "/api/owner/login") return Response.json({ authenticated: true });
+      if (String(input) === "/api/owner/logout") return Response.json({ authenticated: false });
+      if (String(input).startsWith("/api/years?")) {
+        return Response.json({ domain: "example.com", source: "internet-archive-cdx",
+          years: [2002], truncated: false, limitation: "Indexed years only." });
+      }
+      const url = new URL(String(input), "https://iam.test");
+      if (url.pathname === "/api/screenshot") return Response.json({ error: { code: "SCREENSHOT_NOT_CACHED" } }, { status: 404 });
+      return Response.json(capturePayload(2002));
+    });
+    (window.document.querySelector("#domain") as unknown as HTMLInputElement).value = "example.com";
+    await submit(window);
+    await clickYear(window, 2002);
+    expect(window.document.querySelector('[data-screenshot-year="2002"]')).toBeNull();
+    const input = window.document.querySelector("#owner-login-token") as unknown as HTMLInputElement;
+    input.value = "test-owner-token";
+    window.document.querySelector("#owner-login-form")?.dispatchEvent(new window.Event("submit", { bubbles: true, cancelable: true }));
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    expect(calls).toContain("/api/owner/login");
+    expect(input.value).toBe("");
+    expect(window.document.querySelector("#owner-tools")?.hasAttribute("hidden")).toBe(false);
+    expect(window.document.querySelector('[data-screenshot-year="2002"]')).not.toBeNull();
+    (window.document.querySelector("#owner-logout-button") as unknown as HTMLButtonElement).click();
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    expect(calls).toContain("/api/owner/logout");
+    expect(window.document.querySelector('[data-screenshot-year="2002"]')).toBeNull();
+    expect(window.document.querySelector("#owner-tools")?.hasAttribute("hidden")).toBe(true);
+  });
+
+  it("shows PNG sharing only after two real captures are selected", async () => {
+    const window = createPage();
+    initSearch(window.document as unknown as Document, async (input) => {
+      if (String(input).startsWith("/api/screenshot?")) {
+        return Response.json({ error: { code: "SCREENSHOT_NOT_CACHED" } }, { status: 404 });
+      }
+      const year = Number(new URL(String(input), "https://iam.test").searchParams.get("year"));
+      return Response.json(capturePayload(year));
+    });
+    (window.document.querySelector("#domain") as unknown as HTMLInputElement).value = "example.com";
+    await submit(window);
+    expect(window.document.querySelector("#share-card-actions")?.hasAttribute("hidden")).toBe(true);
+    await clickYear(window, 2002);
+    expect(window.document.querySelector("#share-card-actions")?.hasAttribute("hidden")).toBe(true);
+    await clickYear(window, 2003);
+    expect(window.document.querySelector("#share-card-actions")?.hasAttribute("hidden")).toBe(false);
+    expect((window.document.querySelector("#download-discovery") as unknown as HTMLButtonElement).disabled).toBe(true);
+  });
+
+  it("uses the signed owner session instead of resending the private token for each screenshot", async () => {
     const window = createPage();
     let screenshotRequest: Request | undefined;
     const fakeFetch: typeof fetch = async (input, init) => {
@@ -299,14 +383,12 @@ describe("on-demand year explorer", () => {
     (window.document.querySelector("#domain") as unknown as HTMLInputElement).value = "example.com";
     await submit(window);
     await clickYear(window, 2002);
-    (window.document.querySelector("#screenshot-token") as unknown as HTMLInputElement).value = "owner-secret";
-
     await clickScreenshot(window, 2002);
 
     expect(screenshotRequest?.method).toBe("POST");
-    expect(screenshotRequest?.headers.get("x-screenshot-token")).toBe("owner-secret");
+    expect(screenshotRequest?.headers.has("x-screenshot-token")).toBe(false);
     await expect(screenshotRequest?.json()).resolves.toEqual({ domain: "example.com", year: 2002 });
-    expect((window.document.querySelector("#screenshot-token") as unknown as HTMLInputElement).value).toBe("");
+    expect(screenshotRequest?.credentials).toBe("same-origin");
     const image = window.document.querySelector("#screenshot-image") as unknown as HTMLImageElement;
     expect(image.src).toMatch(/^blob:/);
     expect(image.alt).toBe("Wayback replay screenshot requested for example.com in 2002; the replay may redirect to a different archived date");
@@ -328,7 +410,6 @@ describe("on-demand year explorer", () => {
       (window.document.querySelector("#domain") as unknown as HTMLInputElement).value = domainInput;
       await submit(window);
       await clickYear(window, 2002);
-      (window.document.querySelector("#screenshot-token") as unknown as HTMLInputElement).value = "owner-secret";
 
       await clickScreenshot(window, 2002);
 
@@ -361,13 +442,10 @@ describe("on-demand year explorer", () => {
     expect(window.document.querySelector("#screenshot-result")?.hasAttribute("hidden")).toBe(true);
     expect(window.document.querySelector("#screenshot-result-second")?.hasAttribute("hidden")).toBe(true);
 
-    const token = window.document.querySelector("#screenshot-token") as unknown as HTMLInputElement;
-    token.value = "owner-secret";
     await clickScreenshot(window, 2002);
     const firstSrc = (window.document.querySelector("#screenshot-image") as unknown as HTMLImageElement).src;
     expect(firstSrc).toMatch(/^blob:/);
     expect(window.document.querySelector("#screenshot-result-second")?.hasAttribute("hidden")).toBe(true);
-    token.value = "owner-secret";
     await clickScreenshot(window, 2003);
 
     const secondImage = window.document.querySelector("#screenshot-image-second") as unknown as HTMLImageElement;
@@ -378,8 +456,7 @@ describe("on-demand year explorer", () => {
     expect(window.document.querySelector("#screenshot-result")?.hasAttribute("hidden")).toBe(false);
     expect(window.document.querySelector("#screenshot-result-second")?.hasAttribute("hidden")).toBe(false);
     expect(screenshotYears).toEqual([2002, 2003]);
-    expect((window.document.querySelector('[data-screenshot-year="2002"]') as unknown as HTMLButtonElement).disabled).toBe(true);
-    expect(token.value).toBe("");
+    expect(window.document.querySelector('[data-screenshot-year="2002"]')).toBeNull();
   });
 
   it("reuses an in-tab screenshot when its year is reselected and revokes both URLs on domain change", async () => {
@@ -396,15 +473,12 @@ describe("on-demand year explorer", () => {
     };
     initSearch(window.document as unknown as Document, fakeFetch);
     const domain = window.document.querySelector("#domain") as unknown as HTMLInputElement;
-    const token = window.document.querySelector("#screenshot-token") as unknown as HTMLInputElement;
     domain.value = "example.com";
     await submit(window);
     await clickYear(window, 2002);
     await clickYear(window, 2003);
-    token.value = "owner-secret";
     await clickScreenshot(window, 2002);
     const firstUrl = (window.document.querySelector("#screenshot-image") as unknown as HTMLImageElement).src;
-    token.value = "owner-secret";
     await clickScreenshot(window, 2003);
     const secondUrl = (window.document.querySelector("#screenshot-image-second") as unknown as HTMLImageElement).src;
 
@@ -440,11 +514,8 @@ describe("on-demand year explorer", () => {
     await submit(window);
     await clickYear(window, 2002);
     await clickYear(window, 2003);
-    const tokenInput = window.document.querySelector("#screenshot-token") as unknown as HTMLInputElement;
-    tokenInput.value = "owner-secret";
 
     await clickScreenshot(window, 2002);
-    tokenInput.value = "owner-secret";
     await clickScreenshot(window, 2003);
 
     expect(screenshotCalls).toBe(1);
@@ -471,7 +542,6 @@ describe("on-demand year explorer", () => {
     domainInput.value = "example.com";
     await submit(window);
     await clickYear(window, 2002);
-    (window.document.querySelector("#screenshot-token") as unknown as HTMLInputElement).value = "owner-secret";
     await clickScreenshot(window, 2002);
     const image = window.document.querySelector("#screenshot-image") as unknown as HTMLImageElement;
     const screenshotUrl = image.src;
@@ -500,7 +570,6 @@ describe("on-demand year explorer", () => {
     (window.document.querySelector("#domain") as unknown as HTMLInputElement).value = "example.com";
     await submit(window);
     await clickYear(window, 2002);
-    (window.document.querySelector("#screenshot-token") as unknown as HTMLInputElement).value = "owner-secret";
 
     await clickScreenshot(window, 2002);
 

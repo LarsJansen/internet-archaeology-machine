@@ -9,7 +9,8 @@ The application uses a Tabler-styled Vite/TypeScript interface and Cloudflare Wo
 - A responsive, keyboard-friendly year explorer that lists only years with matching indexed homepage captures, with explicit empty, loading, success, and upstream-error states.
 - A two-capture metadata comparison with safe replay links and replaceable, session-cached year selections.
 - Persistent screenshot storage in Cloudflare R2. Public visitors automatically see previously saved PNGs; only owners may generate new images. Owner generation re-verifies the capture and checks R2 first to avoid repeat Browser Run charges. The screenshot action hides Wayback's own toolbar using a scoped CSS rule.
-- Tabler-based responsive light UI (CSS pinned to @tabler/core 1.7.1 on jsDelivr). The visitor's preview object URLs stay only in tab memory and are cleared on domain change; the source PNGs live persistently in R2.
+- Tabler-based responsive light UI (CSS pinned to @tabler/core 1.7.1 on jsDelivr). Visitors can download a 1600×1100 shareable comparison PNG from two loaded screenshots and copy exact Wayback source links. Export runs entirely in the browser, never calling Browser Run.
+- Curator-only generation uses a seven-day, HMAC-signed `Secure`, `HttpOnly`, `SameSite=Strict` session cookie, rather than requiring the owner token for every screenshot. Public visitors never see the generation controls. The original secret remains in Cloudflare and is sent once to log in, not stored in browser-accessible storage.
 - `GET /api/health` for a local/deployed health check.
 - `GET /api/captures?domain=example.com` for a bounded Internet Archive CDX query.
 - `GET /api/captures?domain=example.com&year=2002` for at most one capture from one selected year.

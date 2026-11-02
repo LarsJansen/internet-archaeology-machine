@@ -48,10 +48,17 @@ The production deployment and authentic CDX access were verified by the project 
 - Display no invented 1996–present year grid and only show comparison panels after individual capture verification.
 - Explain partial coverage, index errors and empty results honestly.
 
+## Shareable discovery cards and curator access — complete
+
+- Export a two-image, source-labelled comparison PNG entirely in the browser using already saved screenshots.
+- Keep both exact Wayback URLs available with a copy-sources action so shared graphics have a verifiable trail.
+- Replace the repeated screenshot token form with a discreet curator login and seven-day HttpOnly signed session.
+- Present production-ready copy without public-facing admin/proof-of-concept labels.
+
 ## Full Phase 1 timeline — not implemented
 
 Normalize homepage variants, merge/de-duplicate capture metadata, group authentic captures by year, add filters and shareable investigation URLs, and cover all UI states with representative tests.
 
 ## Later phases — not implemented
 
-Two-image visual comparison, PNG export, citations, exportable discovery cards, curated examples, and source-code archaeology remain separate, reviewable projects.
+Curated examples, discovery collections, richer shareable investigation URLs and source-code archaeology remain separate, reviewable projects.
