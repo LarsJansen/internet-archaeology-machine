@@ -24,9 +24,23 @@ function createPage() {
           <label for="screenshot-token">Owner screenshot token</label>
           <input id="screenshot-token" type="password" autocomplete="off" />
         </div>
-        <section id="screenshot-result" hidden>
-          <p id="screenshot-caption"></p>
-          <img id="screenshot-image" />
+        <section id="comparison-gallery" hidden>
+          <article id="image-panel-first" hidden>
+            <h4 id="visual-year-first"></h4>
+            <div id="visual-placeholder-first"></div>
+            <section id="screenshot-result" hidden>
+              <p id="screenshot-caption"></p>
+              <img id="screenshot-image" />
+            </section>
+          </article>
+          <article id="image-panel-second" hidden>
+            <h4 id="visual-year-second"></h4>
+            <div id="visual-placeholder-second"></div>
+            <section id="screenshot-result-second" hidden>
+              <p id="screenshot-caption-second"></p>
+              <img id="screenshot-image-second" />
+            </section>
+          </article>
         </section>
       </section>
     </section>
@@ -206,6 +220,90 @@ describe("on-demand year explorer", () => {
       );
     },
   );
+
+  it("renders two independently requested screenshots side by side without background browser requests", async () => {
+    const window = createPage();
+    const screenshotYears: number[] = [];
+    const fakeFetch: typeof fetch = async (input, init) => {
+      if (String(input) === "/api/screenshot") {
+        const payload = JSON.parse(String(init?.body)) as { year: number };
+        screenshotYears.push(payload.year);
+        return new Response(new Uint8Array([137, 80, 78, 71]), { headers: { "Content-Type": "image/png" } });
+      }
+      const year = Number(new URL(String(input), "https://iam.test").searchParams.get("year"));
+      return Response.json(capturePayload(year));
+    };
+    initSearch(window.document as unknown as Document, fakeFetch);
+    (window.document.querySelector("#domain") as unknown as HTMLInputElement).value = "example.com";
+    await submit(window);
+    await clickYear(window, 2002);
+    await clickYear(window, 2003);
+    expect(screenshotYears).toEqual([]);
+    expect(window.document.querySelector("#comparison-gallery")?.hasAttribute("hidden")).toBe(false);
+    expect(window.document.querySelector("#screenshot-result")?.hasAttribute("hidden")).toBe(true);
+    expect(window.document.querySelector("#screenshot-result-second")?.hasAttribute("hidden")).toBe(true);
+
+    const token = window.document.querySelector("#screenshot-token") as unknown as HTMLInputElement;
+    token.value = "owner-secret";
+    await clickScreenshot(window, 2002);
+    const firstSrc = (window.document.querySelector("#screenshot-image") as unknown as HTMLImageElement).src;
+    expect(firstSrc).toMatch(/^blob:/);
+    expect(window.document.querySelector("#screenshot-result-second")?.hasAttribute("hidden")).toBe(true);
+    token.value = "owner-secret";
+    await clickScreenshot(window, 2003);
+
+    const secondImage = window.document.querySelector("#screenshot-image-second") as unknown as HTMLImageElement;
+    expect(secondImage.src).toMatch(/^blob:/);
+    expect(secondImage.src).not.toBe(firstSrc);
+    expect((window.document.querySelector("#screenshot-image") as unknown as HTMLImageElement).src).toBe(firstSrc);
+    expect(secondImage.alt).toContain("2003");
+    expect(window.document.querySelector("#screenshot-result")?.hasAttribute("hidden")).toBe(false);
+    expect(window.document.querySelector("#screenshot-result-second")?.hasAttribute("hidden")).toBe(false);
+    expect(screenshotYears).toEqual([2002, 2003]);
+    expect((window.document.querySelector('[data-screenshot-year="2002"]') as unknown as HTMLButtonElement).disabled).toBe(true);
+    expect(token.value).toBe("");
+  });
+
+  it("reuses an in-tab screenshot when its year is reselected and revokes both URLs on domain change", async () => {
+    const window = createPage();
+    const revokeSpy = vi.spyOn(URL, "revokeObjectURL");
+    let screenshotCalls = 0;
+    const fakeFetch: typeof fetch = async (input, init) => {
+      if (String(input) === "/api/screenshot") {
+        screenshotCalls += 1;
+        return new Response(new Uint8Array([137]), { headers: { "Content-Type": "image/png" } });
+      }
+      const url = new URL(String(input), "https://iam.test");
+      return Response.json(capturePayload(Number(url.searchParams.get("year")), url.searchParams.get("domain") ?? ""));
+    };
+    initSearch(window.document as unknown as Document, fakeFetch);
+    const domain = window.document.querySelector("#domain") as unknown as HTMLInputElement;
+    const token = window.document.querySelector("#screenshot-token") as unknown as HTMLInputElement;
+    domain.value = "example.com";
+    await submit(window);
+    await clickYear(window, 2002);
+    await clickYear(window, 2003);
+    token.value = "owner-secret";
+    await clickScreenshot(window, 2002);
+    const firstUrl = (window.document.querySelector("#screenshot-image") as unknown as HTMLImageElement).src;
+    token.value = "owner-secret";
+    await clickScreenshot(window, 2003);
+    const secondUrl = (window.document.querySelector("#screenshot-image-second") as unknown as HTMLImageElement).src;
+
+    await replaceYear(window, 2002);
+    expect((window.document.querySelector("#screenshot-image") as unknown as HTMLImageElement).src).toBe(secondUrl);
+    await clickYear(window, 2002);
+    expect((window.document.querySelector("#screenshot-image") as unknown as HTMLImageElement).src).toBe(secondUrl);
+    expect((window.document.querySelector("#screenshot-image-second") as unknown as HTMLImageElement).src).toBe(firstUrl);
+    expect(screenshotCalls).toBe(2);
+
+    domain.value = "mozilla.org";
+    await submit(window);
+    expect(revokeSpy).toHaveBeenCalledWith(firstUrl);
+    expect(revokeSpy).toHaveBeenCalledWith(secondUrl);
+    expect(window.document.querySelector("#comparison-gallery")?.hasAttribute("hidden")).toBe(true);
+    revokeSpy.mockRestore();
+  });
 
   it("allows only one screenshot request while an image is pending", async () => {
     const window = createPage();

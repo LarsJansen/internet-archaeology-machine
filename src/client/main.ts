@@ -37,6 +37,7 @@ function createCaptureItem(
   capture: Capture,
   onReplace: () => void,
   onScreenshot: () => void,
+  screenshotReady: boolean,
 ): HTMLLIElement {
   const item = document.createElement("li");
   const yearHeading = document.createElement("h4");
@@ -53,18 +54,22 @@ function createCaptureItem(
   link.textContent = formatCaptureTimestamp(capture.timestamp);
   metadata.textContent = `${capture.statusCode} · ${capture.mimeType}`;
   screenshotButton.type = "button";
-  screenshotButton.className = "screenshot-capture";
+  screenshotButton.className = "btn btn-primary btn-sm screenshot-capture";
   screenshotButton.dataset.screenshotYear = String(year);
-  screenshotButton.textContent = "Screenshot this capture";
+  screenshotButton.textContent = screenshotReady ? "Screenshot captured" : "Screenshot this capture";
+  screenshotButton.disabled = screenshotReady;
   screenshotButton.addEventListener("click", onScreenshot);
   replaceButton.type = "button";
-  replaceButton.className = "replace-capture";
+  replaceButton.className = "btn btn-outline-secondary btn-sm replace-capture";
   replaceButton.dataset.replaceYear = String(year);
   replaceButton.setAttribute("aria-label", `Replace ${year} in comparison`);
   replaceButton.textContent = "Replace this year";
   replaceButton.addEventListener("click", onReplace);
 
-  item.append(yearHeading, link, metadata, screenshotButton, replaceButton);
+  const actions = document.createElement("div");
+  actions.className = "capture-actions";
+  actions.append(screenshotButton, replaceButton);
+  item.append(yearHeading, link, metadata, actions);
   return item;
 }
 
@@ -113,25 +118,81 @@ export function initSearch(document: Document, fetchImpl: typeof fetch = fetch):
 
   let requestPending = false;
   let screenshotPending = false;
-  let screenshotObjectUrl: string | undefined;
+  const screenshotObjectUrls = new Map<number, string>();
   let activeDomain = "";
   let searchGeneration = 0;
   const checkedYears = new Map<number, Capture | null>();
   let comparedCaptures: Array<{ year: number; capture: Capture }> = [];
 
+  const secondImage = document.querySelector<HTMLImageElement>("#screenshot-image-second");
+  const secondCaption = document.querySelector<HTMLElement>("#screenshot-caption-second");
+  const secondResult = document.querySelector<HTMLElement>("#screenshot-result-second");
+
   const clearScreenshot = () => {
-    if (screenshotObjectUrl) {
-      URL.revokeObjectURL(screenshotObjectUrl);
-      screenshotObjectUrl = undefined;
+    for (const url of screenshotObjectUrls.values()) URL.revokeObjectURL(url);
+    screenshotObjectUrls.clear();
+    for (const [image, caption, section] of [
+      [screenshotImage, screenshotCaption, screenshotResult],
+      [secondImage, secondCaption, secondResult],
+    ] as const) {
+      image?.removeAttribute("src");
+      if (image) image.alt = "";
+      if (caption) caption.textContent = "";
+      if (section) section.hidden = true;
     }
-    screenshotImage.removeAttribute("src");
-    screenshotImage.alt = "";
-    screenshotCaption.textContent = "";
-    screenshotResult.hidden = true;
+  };
+
+  // URLs live only in this tab. The archive is never screenshot in bulk or on page load.
+  const renderScreenshots = (domain: string) => {
+    const gallery = document.querySelector<HTMLElement>("#comparison-gallery");
+    if (gallery) gallery.hidden = comparedCaptures.length === 0;
+    const slots = [
+      {
+        panel: document.querySelector<HTMLElement>("#image-panel-first"),
+        yearLabel: document.querySelector<HTMLElement>("#visual-year-first"),
+        placeholder: document.querySelector<HTMLElement>("#visual-placeholder-first"),
+        image: screenshotImage,
+        caption: screenshotCaption,
+        result: screenshotResult,
+      },
+      {
+        panel: document.querySelector<HTMLElement>("#image-panel-second"),
+        yearLabel: document.querySelector<HTMLElement>("#visual-year-second"),
+        placeholder: document.querySelector<HTMLElement>("#visual-placeholder-second"),
+        image: secondImage,
+        caption: secondCaption,
+        result: secondResult,
+      },
+    ];
+    slots.forEach((slot, index) => {
+      const selected = comparedCaptures[index];
+      if (slot.panel) slot.panel.hidden = !selected;
+      if (!selected) {
+        slot.image?.removeAttribute("src");
+        if (slot.result) slot.result.hidden = true;
+        if (slot.placeholder) slot.placeholder.hidden = false;
+        return;
+      }
+      if (slot.yearLabel) slot.yearLabel.textContent = String(selected.year);
+      const objectUrl = screenshotObjectUrls.get(selected.year);
+      if (!objectUrl) {
+        slot.image?.removeAttribute("src");
+        if (slot.result) slot.result.hidden = true;
+        if (slot.placeholder) slot.placeholder.hidden = false;
+        return;
+      }
+      if (slot.image) {
+        slot.image.src = objectUrl;
+        slot.image.alt = `Screenshot of the archived ${domain} homepage capture from ${selected.year}`;
+      }
+      if (slot.caption) slot.caption.textContent = `${selected.year} archived homepage screenshot for ${domain}`;
+      if (slot.result) slot.result.hidden = false;
+      if (slot.placeholder) slot.placeholder.hidden = true;
+    });
   };
 
   const takeScreenshot = async (year: number, domain: string) => {
-    if (requestPending || screenshotPending) return;
+    if (requestPending || screenshotPending || screenshotObjectUrls.has(year)) return;
     const token = screenshotToken.value;
     if (!token) {
       status.textContent = "Enter the owner screenshot token before requesting an image.";
@@ -150,7 +211,6 @@ export function initSearch(document: Document, fetchImpl: typeof fetch = fetch):
     interactiveButtons.forEach((button) => (button.disabled = true));
     formButton.disabled = true;
     screenshotToken.disabled = true;
-    clearScreenshot();
     status.textContent = `Capturing the ${year} Wayback replay…`;
 
     try {
@@ -177,11 +237,8 @@ export function initSearch(document: Document, fetchImpl: typeof fetch = fetch):
         URL.revokeObjectURL(objectUrl);
         return;
       }
-      screenshotObjectUrl = objectUrl;
-      screenshotImage.src = objectUrl;
-      screenshotImage.alt = `Screenshot of the archived ${domain} homepage capture from ${year}`;
-      screenshotCaption.textContent = `${year} archived homepage screenshot for ${domain}`;
-      screenshotResult.hidden = false;
+      screenshotObjectUrls.set(year, objectUrl);
+      renderComparison(domain);
       status.textContent = `Screenshot captured for ${domain} in ${year}.`;
     } catch {
       status.textContent = "The screenshot service could not be reached. Try again later.";
@@ -208,11 +265,13 @@ export function initSearch(document: Document, fetchImpl: typeof fetch = fetch):
             yearList.querySelector<HTMLButtonElement>(`button[data-year="${compared.year}"]`)?.focus();
           },
           () => void takeScreenshot(compared.year, domain),
+          screenshotObjectUrls.has(compared.year),
         ),
       );
     }
     captureHeading.textContent = `Verified captures for ${domain}`;
     selectedCapture.hidden = comparedCaptures.length === 0;
+    renderScreenshots(domain);
   };
 
   const addToComparison = (year: number, capture: Capture, domain: string) => {
