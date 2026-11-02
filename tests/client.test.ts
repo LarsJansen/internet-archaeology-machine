@@ -31,6 +31,7 @@ function createPage() {
     <p id="status" role="status"></p>
     <section id="results" hidden>
       <h2 id="results-heading"></h2>
+      <p class="timeline-note"></p>
       <ol id="year-list"></ol>
       <section id="selected-capture" hidden>
         <h3 id="capture-heading"></h3>
@@ -682,7 +683,7 @@ describe("on-demand year explorer", () => {
     await clickYear(window, 2002);
 
     expect(window.document.querySelector('[data-year="2002"]')?.textContent).toContain("Check failed");
-    expect(window.document.querySelector('[data-year="2003"]')?.textContent).toContain("Not checked");
+    expect(window.document.querySelector('[data-year="2003"]')?.textContent).toContain("In archive index");
     expect(window.document.querySelector("#status")?.textContent).toBe(message);
   });
 });
