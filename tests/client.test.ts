@@ -149,6 +149,37 @@ describe("on-demand year explorer", () => {
     await pendingClick;
   });
 
+  it("loads saved screenshots for public visitors without a token or Browser Run request", async () => {
+    const window = createPage();
+    const requested: string[] = [];
+    const fakeFetch: typeof fetch = async (input) => {
+      requested.push(String(input));
+      if (String(input).startsWith("/api/screenshot?")) {
+        return new Response(new Uint8Array([137, 80, 78, 71]), {
+          headers: { "Content-Type": "image/png", "X-IAM-Screenshot-Source": "cached" },
+        });
+      }
+      const year = Number(new URL(String(input), "https://iam.test").searchParams.get("year"));
+      return Response.json(capturePayload(year));
+    };
+    initSearch(window.document as unknown as Document, fakeFetch);
+    (window.document.querySelector("#domain") as unknown as HTMLInputElement).value = "example.com";
+    await submit(window);
+    await clickYear(window, 2002);
+    await clickYear(window, 2003);
+    await new Promise((resolve) => setTimeout(resolve, 0));
+
+    expect(requested.filter((url) => url.startsWith("/api/screenshot?"))).toEqual([
+      "/api/screenshot?domain=example.com&year=2002&timestamp=20020120142510",
+      "/api/screenshot?domain=example.com&year=2003&timestamp=20030120142510",
+    ]);
+    expect(requested).not.toContain("/api/screenshot");
+    expect(window.document.querySelector("#screenshot-result")?.hasAttribute("hidden")).toBe(false);
+    expect(window.document.querySelector("#screenshot-result-second")?.hasAttribute("hidden")).toBe(false);
+    expect((window.document.querySelector("#screenshot-token") as unknown as HTMLInputElement).value).toBe("");
+    expect((window.document.querySelector('[data-screenshot-year="2002"]') as unknown as HTMLButtonElement).disabled).toBe(true);
+  });
+
   it("renders a verified capture as a safe Wayback link", async () => {
     const window = createPage();
     const payload = capturePayload();
@@ -216,7 +247,7 @@ describe("on-demand year explorer", () => {
 
       expect(window.document.querySelector("#screenshot-result")?.hasAttribute("hidden")).toBe(false);
       expect(window.document.querySelector("#status")?.textContent).toBe(
-        "Screenshot captured for example.com in 2002.",
+        "Screenshot saved for everyone to view: example.com in 2002.",
       );
     },
   );
@@ -417,7 +448,7 @@ describe("on-demand year explorer", () => {
     const window = createPage();
     let requestCount = 0;
     const fakeFetch: typeof fetch = async (input) => {
-      requestCount += 1;
+      if (String(input).startsWith("/api/captures?")) requestCount += 1;
       const year = Number(new URL(String(input), "https://iam.test").searchParams.get("year"));
       return Response.json(capturePayload(year));
     };
@@ -441,7 +472,7 @@ describe("on-demand year explorer", () => {
     const window = createPage();
     let requestCount = 0;
     const fakeFetch: typeof fetch = async (input) => {
-      requestCount += 1;
+      if (String(input).startsWith("/api/captures?")) requestCount += 1;
       const year = Number(new URL(String(input), "https://iam.test").searchParams.get("year"));
       return Response.json(capturePayload(year));
     };
@@ -473,7 +504,7 @@ describe("on-demand year explorer", () => {
     let requestCount = 0;
     let resolvePending!: (response: Response) => void;
     const fakeFetch: typeof fetch = async (input) => {
-      requestCount += 1;
+      if (String(input).startsWith("/api/captures?")) requestCount += 1;
       const year = Number(new URL(String(input), "https://iam.test").searchParams.get("year"));
       if (requestCount === 3) {
         return new Promise((resolve) => (resolvePending = resolve));
@@ -506,7 +537,7 @@ describe("on-demand year explorer", () => {
     const window = createPage();
     let requestCount = 0;
     const fakeFetch: typeof fetch = async (input) => {
-      requestCount += 1;
+      if (String(input).startsWith("/api/captures?")) requestCount += 1;
       const url = new URL(String(input), "https://iam.test");
       const year = Number(url.searchParams.get("year"));
       const domain = url.searchParams.get("domain") ?? "";

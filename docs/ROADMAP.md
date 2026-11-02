@@ -35,6 +35,13 @@ The production deployment and authentic CDX access were verified by the project 
 - Cache screenshot object URLs only in the current tab, reuse on year replacement, and revoke on domain change.
 - Preserve explicit owner action per screenshot; no batch requests or quota-using background work.
 
+## Phase 3A — PR pending R2 bucket provisioning
+
+- Add R2 Standard screenshot storage and per-image provenance metadata.
+- Show cached PNGs publicly by exact verified capture timestamp; no owner token or Browser Run required for reads.
+- Preserve owner-only generation and avoid duplicate browser renders on cache hits.
+- Do not merge until the named R2 bucket is ready, to protect production deployment.
+
 ## Full Phase 1 timeline — not implemented
 
 Normalize homepage variants, merge/de-duplicate capture metadata, group authentic captures by year, add filters and shareable investigation URLs, and cover all UI states with representative tests.

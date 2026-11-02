@@ -56,7 +56,7 @@ function createCaptureItem(
   screenshotButton.type = "button";
   screenshotButton.className = "btn btn-primary btn-sm screenshot-capture";
   screenshotButton.dataset.screenshotYear = String(year);
-  screenshotButton.textContent = screenshotReady ? "Screenshot captured" : "Screenshot this capture";
+  screenshotButton.textContent = screenshotReady ? "Screenshot available" : "Generate missing screenshot";
   screenshotButton.disabled = screenshotReady;
   screenshotButton.addEventListener("click", onScreenshot);
   replaceButton.type = "button";
@@ -119,6 +119,7 @@ export function initSearch(document: Document, fetchImpl: typeof fetch = fetch):
   let requestPending = false;
   let screenshotPending = false;
   const screenshotObjectUrls = new Map<number, string>();
+  const attemptedCacheLookups = new Set<number>();
   let activeDomain = "";
   let searchGeneration = 0;
   const checkedYears = new Map<number, Capture | null>();
@@ -131,6 +132,7 @@ export function initSearch(document: Document, fetchImpl: typeof fetch = fetch):
   const clearScreenshot = () => {
     for (const url of screenshotObjectUrls.values()) URL.revokeObjectURL(url);
     screenshotObjectUrls.clear();
+    attemptedCacheLookups.clear();
     for (const [image, caption, section] of [
       [screenshotImage, screenshotCaption, screenshotResult],
       [secondImage, secondCaption, secondResult],
@@ -191,6 +193,28 @@ export function initSearch(document: Document, fetchImpl: typeof fetch = fetch):
     });
   };
 
+  // Public cache reads are safe: no owner secret and no Browser Run request.
+  // The archive capture timestamp prevents different replays in the same year colliding.
+  const loadCachedScreenshot = async (year: number, capture: Capture, domain: string) => {
+    if (attemptedCacheLookups.has(year) || screenshotObjectUrls.has(year)) return;
+    attemptedCacheLookups.add(year);
+    const generation = searchGeneration;
+    const url = `/api/screenshot?domain=${encodeURIComponent(domain)}&year=${year}&timestamp=${encodeURIComponent(capture.timestamp)}`;
+    try {
+      const response = await fetchImpl(url, { headers: { Accept: "image/png, application/json" } });
+      if (!response.ok || !response.headers.get("Content-Type")?.startsWith("image/png")) return;
+      const objectUrl = URL.createObjectURL(await response.blob());
+      if (generation !== searchGeneration || screenshotObjectUrls.has(year)) {
+        URL.revokeObjectURL(objectUrl);
+        return;
+      }
+      screenshotObjectUrls.set(year, objectUrl);
+      renderComparison(domain);
+    } catch {
+      // A screenshot cache miss/failure never prevents browsing verified capture metadata.
+    }
+  };
+
   const takeScreenshot = async (year: number, domain: string) => {
     if (requestPending || screenshotPending || screenshotObjectUrls.has(year)) return;
     const token = screenshotToken.value;
@@ -239,7 +263,9 @@ export function initSearch(document: Document, fetchImpl: typeof fetch = fetch):
       }
       screenshotObjectUrls.set(year, objectUrl);
       renderComparison(domain);
-      status.textContent = `Screenshot captured for ${domain} in ${year}.`;
+      status.textContent = response.headers.get("X-IAM-Screenshot-Source") === "cached"
+        ? `Loaded a saved screenshot for ${domain} in ${year}.`
+        : `Screenshot saved for everyone to view: ${domain} in ${year}.`;
     } catch {
       status.textContent = "The screenshot service could not be reached. Try again later.";
     } finally {
@@ -286,6 +312,7 @@ export function initSearch(document: Document, fetchImpl: typeof fetch = fetch):
     comparedCaptures.push({ year, capture });
     renderComparison(domain);
     status.textContent = `Capture found for ${domain} in ${year}.`;
+    void loadCachedScreenshot(year, capture, domain);
   };
 
   form.addEventListener("submit", (event) => {

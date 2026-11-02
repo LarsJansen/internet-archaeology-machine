@@ -7,6 +7,9 @@
     "binding": "BROWSER",
     "remote": true
   },
+  "r2_buckets": [
+    { "binding": "SCREENSHOTS", "bucket_name": "internet-archaeology-machine-screenshots" }
+  ],
   "assets": {
     "directory": "./dist",
     "run_worker_first": ["/api/*"]

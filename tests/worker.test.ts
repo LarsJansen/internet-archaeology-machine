@@ -16,7 +16,120 @@ const screenshotRequest = (token?: string, body: unknown = { domain: "example.co
     body: JSON.stringify(body),
   });
 
+function createBucket() {
+  const objects = new Map<string, { bytes: Uint8Array; metadata: Record<string, string> }>();
+  return {
+    objects,
+    binding: {
+      async get(key: string) {
+        const item = objects.get(key);
+        if (!item) return null;
+        return {
+          body: new Response(item.bytes.slice()).body,
+          customMetadata: item.metadata,
+        } as R2ObjectBody;
+      },
+      async put(key: string, data: ArrayBuffer, options?: { customMetadata?: Record<string, string> }) {
+        objects.set(key, {
+          bytes: new Uint8Array(data.slice(0)),
+          metadata: options?.customMetadata ?? {},
+        });
+        return {} as R2Object;
+      },
+    } as unknown as R2Bucket,
+  };
+}
+
 describe("Worker API", () => {
+  it("allows anyone to fetch a stored screenshot by exact archive timestamp without Browser Run or CDX", async () => {
+    const bucket = createBucket();
+    const png = new Uint8Array([137, 80, 78, 71]);
+    const key = "screenshots/toolbarless-v1-1280x900/example.com/20020120142510.png";
+    bucket.objects.set(key, { bytes: png, metadata: { requestedYear: "2002" } });
+    let archiveCalls = 0;
+    const failFetch: typeof fetch = async () => {
+      archiveCalls += 1;
+      throw new Error("Public cache reads must not contact the Internet Archive");
+    };
+    const response = await handleRequest(
+      request("/api/screenshot?domain=example.com&year=2002&timestamp=20020120142510"),
+      failFetch,
+      { SCREENSHOTS: bucket.binding },
+    );
+    expect(response.status).toBe(200);
+    expect(response.headers.get("x-iam-screenshot-source")).toBe("cached");
+    expect(new Uint8Array(await response.arrayBuffer())).toEqual(png);
+    expect(archiveCalls).toBe(0);
+  });
+
+  it("returns a real 404 on a missing screenshot and rejects invalid cache keys", async () => {
+    const bucket = createBucket();
+    const noArchive: typeof fetch = async () => { throw new Error("no upstream"); };
+    const missing = await handleRequest(
+      request("/api/screenshot?domain=example.com&year=2002&timestamp=20020120142510"),
+      noArchive, { SCREENSHOTS: bucket.binding },
+    );
+    expect(missing.status).toBe(404);
+    await expect(missing.json()).resolves.toMatchObject({ error: { code: "SCREENSHOT_NOT_CACHED" } });
+    const mismatched = await handleRequest(
+      request("/api/screenshot?domain=example.com&year=2002&timestamp=20190120142510"),
+      noArchive, { SCREENSHOTS: bucket.binding },
+    );
+    expect(mismatched.status).toBe(400);
+  });
+
+  it("reuses a saved screenshot for owner requests without starting the browser", async () => {
+    const bucket = createBucket();
+    const png = new Uint8Array([137, 80, 78, 71]);
+    const key = "screenshots/toolbarless-v1-1280x900/example.com/20020120142510.png";
+    bucket.objects.set(key, { bytes: png, metadata: {} });
+    const response = await handleRequest(screenshotRequest("owner-secret"), async () => Response.json(fixture), {
+      SCREENSHOT_ACCESS_TOKEN: "owner-secret",
+      SCREENSHOTS: bucket.binding,
+    });
+    expect(response.status).toBe(200);
+    expect(response.headers.get("x-iam-screenshot-source")).toBe("cached");
+  });
+
+  it("generates once, saves original capture provenance, then serves it publicly", async () => {
+    const bucket = createBucket();
+    let browserCalls = 0;
+    const browser = {
+      quickAction: async () => {
+        browserCalls++;
+        return new Response(new Uint8Array([137, 80, 78, 71]), { headers: { "Content-Type": "image/png" } });
+      },
+    } as unknown as BrowserRun;
+    const first = await handleRequest(screenshotRequest("owner-secret"), async () => Response.json(fixture), {
+      BROWSER: browser, SCREENSHOT_ACCESS_TOKEN: "owner-secret", SCREENSHOTS: bucket.binding,
+    });
+    expect(first.status).toBe(200);
+    expect(first.headers.get("x-iam-screenshot-source")).toBe("generated");
+    const key = "screenshots/toolbarless-v1-1280x900/example.com/20020120142510.png";
+    expect(bucket.objects.get(key)?.metadata).toMatchObject({
+      domain: "example.com", requestedYear: "2002", captureTimestamp: "20020120142510",
+      rendererVersion: "toolbarless-v1-1280x900", renderDateVerified: "false",
+    });
+    const second = await handleRequest(screenshotRequest("owner-secret"), async () => Response.json(fixture), {
+      BROWSER: browser, SCREENSHOT_ACCESS_TOKEN: "owner-secret", SCREENSHOTS: bucket.binding,
+    });
+    expect(second.status).toBe(200);
+    expect(second.headers.get("x-iam-screenshot-source")).toBe("cached");
+    expect(browserCalls).toBe(1);
+  });
+
+  it("fails closed when R2 is not attached instead of using Browser Run without persistence", async () => {
+    let browserCalls = 0;
+    const browser = { quickAction: async () => { browserCalls++; throw Error("should not render"); } } as unknown as BrowserRun;
+    const response = await handleRequest(screenshotRequest("owner-secret"), async () => Response.json(fixture), {
+      BROWSER: browser, SCREENSHOT_ACCESS_TOKEN: "owner-secret",
+    });
+    expect(response.status).toBe(503);
+    await expect(response.json()).resolves.toMatchObject({ error: { code: "SCREENSHOT_CACHE_UNAVAILABLE" } });
+    expect(browserCalls).toBe(0);
+  });
+
+
   it("reports health without contacting the archive", async () => {
     const failFetch: typeof fetch = async () => {
       throw new Error("archive fetch must not run");
@@ -116,18 +229,19 @@ describe("Worker API", () => {
     let archiveCalls = 0;
     const fakeFetch: typeof fetch = async () => {
       archiveCalls += 1;
-      throw new Error("must not fetch archive without browser binding");
+      return Response.json(fixture);
     };
 
     const response = await handleRequest(screenshotRequest("owner-secret"), fakeFetch, {
       SCREENSHOT_ACCESS_TOKEN: "owner-secret",
+      SCREENSHOTS: createBucket().binding,
     });
 
     expect(response.status).toBe(503);
     await expect(response.json()).resolves.toMatchObject({
       error: { code: "SCREENSHOT_BROWSER_UNAVAILABLE" },
     });
-    expect(archiveCalls).toBe(0);
+    expect(archiveCalls).toBe(1);
   });
 
   it.each([undefined, "wrong-token"])(
@@ -149,6 +263,7 @@ describe("Worker API", () => {
       const response = await handleRequest(screenshotRequest(token), fakeFetch, {
         BROWSER: browser,
         SCREENSHOT_ACCESS_TOKEN: "owner-secret",
+      SCREENSHOTS: createBucket().binding,
       });
 
       expect(response.status).toBe(401);
@@ -181,12 +296,12 @@ describe("Worker API", () => {
         url: "https://untrusted.example/",
       }),
       fakeFetch,
-      { BROWSER: browser, SCREENSHOT_ACCESS_TOKEN: "owner-secret" },
+      { BROWSER: browser, SCREENSHOT_ACCESS_TOKEN: "owner-secret", SCREENSHOTS: createBucket().binding },
     );
 
     expect(response.status).toBe(200);
     expect(response.headers.get("content-type")).toBe("image/png");
-    expect(response.headers.get("cache-control")).toBe("no-store");
+    expect(response.headers.get("cache-control")).toContain("public");
     expect(new Uint8Array(await response.arrayBuffer())).toEqual(new Uint8Array([137, 80, 78, 71]));
     expect(browserCalls).toBe(1);
     expect(actionName).toBe("screenshot");
@@ -214,6 +329,7 @@ describe("Worker API", () => {
     const response = await handleRequest(screenshotRequest("owner-secret"), fakeFetch, {
       BROWSER: browser,
       SCREENSHOT_ACCESS_TOKEN: "owner-secret",
+      SCREENSHOTS: createBucket().binding,
     });
 
     expect(response.status).toBe(429);
@@ -234,6 +350,7 @@ describe("Worker API", () => {
     const response = await handleRequest(screenshotRequest("owner-secret"), fakeFetch, {
       BROWSER: browser,
       SCREENSHOT_ACCESS_TOKEN: "owner-secret",
+      SCREENSHOTS: createBucket().binding,
     });
 
     expect(response.status).toBe(404);
@@ -261,6 +378,7 @@ describe("Worker API", () => {
     const response = await handleRequest(screenshotRequest("owner-secret", body), fakeFetch, {
       BROWSER: browser,
       SCREENSHOT_ACCESS_TOKEN: "owner-secret",
+      SCREENSHOTS: createBucket().binding,
     });
 
     expect(response.status).toBe(400);

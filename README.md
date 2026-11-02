@@ -8,8 +8,8 @@ The application uses a Tabler-styled Vite/TypeScript interface and Cloudflare Wo
 
 - A responsive, keyboard-friendly year explorer with not-checked, loading, empty, success, and upstream-error states.
 - A two-capture metadata comparison with safe replay links and replaceable, session-cached year selections.
-- Opt-in owner screenshot actions that re-verify each selected capture server-side before Cloudflare Browser Run; both screenshots display side by side with no automatic capture requests. The screenshot action hides Wayback's own toolbar using a scoped CSS rule.
-- Tabler-based responsive light UI (CSS pinned to @tabler/core 1.7.1 on jsDelivr), with screenshot previews held only in tab memory and cleared when the domain changes.
+- Persistent screenshot storage in Cloudflare R2. Public visitors automatically see previously saved PNGs; only owners may generate new images. Owner generation re-verifies the capture and checks R2 first to avoid repeat Browser Run charges. The screenshot action hides Wayback's own toolbar using a scoped CSS rule.
+- Tabler-based responsive light UI (CSS pinned to @tabler/core 1.7.1 on jsDelivr). The visitor's preview object URLs stay only in tab memory and are cleared on domain change; the source PNGs live persistently in R2.
 - `GET /api/health` for a local/deployed health check.
 - `GET /api/captures?domain=example.com` for a bounded Internet Archive CDX query.
 - `GET /api/captures?domain=example.com&year=2002` for at most one capture from one selected year.
@@ -45,7 +45,7 @@ curl "http://localhost:8787/api/captures?domain=example.com&year=2002"
 
 Successful capture responses identify `internet-archive-cdx` as their source and include an archive-coverage limitation. HTTP 429 from the upstream archive becomes an explicit `ARCHIVE_RATE_LIMITED` response; the application never swaps in demo data.
 
-The screenshot endpoint accepts only a validated domain and year. It never accepts a destination URL or HTML, and it remains disabled until the owner configures `SCREENSHOT_ACCESS_TOKEN`. See [deployment preparation](docs/DEPLOYMENT.md) for setup and testing.
+Public `GET /api/screenshot?domain=example.com&year=2002&timestamp=20020120142510` fetches only an exact, previously saved image from R2, without contacting the archive or running a browser. Owner `POST /api/screenshot` accepts a validated domain and year, checks the same R2 key after live CDX verification, and only launches Browser Run on a miss. The endpoint never accepts a destination URL or HTML. Storage writes require both the `SCREENSHOTS` R2 binding and `SCREENSHOT_ACCESS_TOKEN` secret. See [deployment preparation](docs/DEPLOYMENT.md) for setup and testing.
 
 ## Project map
 
@@ -67,3 +67,9 @@ The Phase 0 deployment and authentic CDX access were verified before the on-dema
 ## License
 
 [MIT](LICENSE)
+
+## Phase 3A: persistent screenshot cache
+
+A single Cloudflare R2 Standard bucket, `internet-archaeology-machine-screenshots`, stores the PNG and attached provenance metadata. No D1 database is needed until browsing/searching the stored catalogue is required. Object keys include the capture timestamp and rendering version, not just the requested year. Previously generated **in-browser** screenshots are not retroactively present in R2 and must be generated once after storage is configured.
+
+See [deployment preparation](docs/DEPLOYMENT.md) for the one-time owner R2 setup. The Worker fails closed rather than running Browser Run when its storage binding is missing. Public cache misses return 404 and do not consume archive or screenshot quota.
