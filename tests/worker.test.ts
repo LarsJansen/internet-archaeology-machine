@@ -203,6 +203,71 @@ describe("Worker API", () => {
     expect(body.limitation).toContain("2002");
   });
 
+  it("discovers sparse indexed years with one bounded collapsed CDX request", async () => {
+    const observed: string[] = [];
+    const header = ["timestamp", "original", "statuscode", "mimetype", "digest", "length"];
+    const row = (year: number) => [
+      `${year}0101120000`, "http://late.example/", "200", "text/html", `digest${year}`, "120",
+    ];
+    const fakeFetch: typeof fetch = async (input) => {
+      observed.push(String(input));
+      return Response.json([header, row(2023), row(2025), row(2025), row(2026)]);
+    };
+    const response = await handleRequest(request("/api/years?domain=late.example"), fakeFetch);
+    expect(response.status).toBe(200);
+    await expect(response.json()).resolves.toMatchObject({
+      domain: "late.example",
+      years: [2023, 2025, 2026],
+      truncated: false,
+      source: "internet-archive-cdx",
+    });
+    expect(observed).toHaveLength(1);
+    const url = new URL(observed[0]);
+    expect(url.searchParams.get("url")).toBe("late.example");
+    expect(url.searchParams.get("collapse")).toBe("timestamp:4");
+    expect(url.searchParams.get("limit")).toBe("128");
+    expect(url.searchParams.get("from")).toBe("1996");
+    expect(url.searchParams.get("to")).toBe(String(new Date().getUTCFullYear()));
+    expect(url.searchParams.getAll("filter")).toEqual(["statuscode:200", "mimetype:text/html"]);
+  });
+
+  it("does not fabricate indexed years when CDX returns no matching records", async () => {
+    const response = await handleRequest(
+      request("/api/years?domain=unused.example"),
+      async () => Response.json([]),
+    );
+    expect(response.status).toBe(200);
+    await expect(response.json()).resolves.toMatchObject({
+      years: [], truncated: false,
+    });
+  });
+
+  it("distinguishes failed index access from empty archive coverage", async () => {
+    const response = await handleRequest(
+      request("/api/years?domain=example.com"),
+      async () => Response.json({ problem: "busy" }, { status: 429 }),
+    );
+    expect(response.status).toBe(503);
+    await expect(response.json()).resolves.toMatchObject({ error: { code: "ARCHIVE_RATE_LIMITED" } });
+  });
+
+  it("validates year-index domains without contacting the archive", async () => {
+    const noFetch: typeof fetch = async () => { throw Error("should not contact CDX"); };
+    const response = await handleRequest(request("/api/years?domain=localhost"), noFetch);
+    expect(response.status).toBe(400);
+  });
+
+  it("marks a bounded index as truncated when the returned record limit is reached", async () => {
+    const header = ["timestamp", "original", "statuscode", "mimetype", "digest", "length"];
+    const rows = Array.from({length: 128}, (_, i) => [
+      `2020${String(i % 12 + 1).padStart(2, "0")}01120000`,
+      "http://example.com/", "200", "text/html", `digest${i}`, "100",
+    ]);
+    const response = await handleRequest(request("/api/years?domain=example.com"), async () => Response.json([header, ...rows]));
+    expect(response.status).toBe(200);
+    await expect(response.json()).resolves.toMatchObject({ years: [2020], truncated: true });
+  });
+
   it("disables screenshots before any upstream request when the owner secret is missing", async () => {
     let archiveCalls = 0;
     let browserCalls = 0;
