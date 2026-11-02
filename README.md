@@ -6,18 +6,19 @@ The application uses a Tabler-styled Vite/TypeScript interface and Cloudflare Wo
 
 ## What works
 
-- A responsive, keyboard-friendly year explorer with not-checked, loading, empty, success, and upstream-error states.
+- A responsive, keyboard-friendly year explorer that lists only years with matching indexed homepage captures, with explicit empty, loading, success, and upstream-error states.
 - A two-capture metadata comparison with safe replay links and replaceable, session-cached year selections.
 - Persistent screenshot storage in Cloudflare R2. Public visitors automatically see previously saved PNGs; only owners may generate new images. Owner generation re-verifies the capture and checks R2 first to avoid repeat Browser Run charges. The screenshot action hides Wayback's own toolbar using a scoped CSS rule.
 - Tabler-based responsive light UI (CSS pinned to @tabler/core 1.7.1 on jsDelivr). The visitor's preview object URLs stay only in tab memory and are cleared on domain change; the source PNGs live persistently in R2.
 - `GET /api/health` for a local/deployed health check.
 - `GET /api/captures?domain=example.com` for a bounded Internet Archive CDX query.
 - `GET /api/captures?domain=example.com&year=2002` for at most one capture from one selected year.
+- `GET /api/years?domain=example.com` for a bounded CDX-derived list of indexed homepage years (not a complete history guarantee).
 - Public-hostname validation that rejects credentials, ports, IP literals, localhost, and internal names before any upstream request.
 - Explicit handling for rate limits, timeouts, malformed archive data, and general upstream failures.
 - Deterministic Vitest coverage using a clearly labelled real-shape fixture. Fixture records are never returned by the live API.
 
-The year selector does not claim that every displayed year is archived. Years remain labelled “Not checked” until selected, and the browser never scans or fans out across decades. The comparison covers verified archive metadata and replay entry points for everyone. The screenshot comparison is an optional owner-only action, with one Browser Run request per image and in-tab reuse to conserve the free-tier quota. Wayback may redirect the replay to a different archived year even when CDX verifies a capture in the requested year; user-facing screenshot captions therefore identify the *requested* year rather than claiming the final rendered content is necessarily from it. The original Wayback link remains available for provenance.
+The year selector lists only years returned by one bounded CDX query using `collapse=timestamp:4`; each chosen year is verified again before comparison. The index can be incomplete, so missing years do not prove the site was offline. The browser never fans out across decades. The comparison covers verified archive metadata and replay entry points for everyone. The screenshot comparison is an optional owner-only action, with one Browser Run request per image and in-tab reuse to conserve the free-tier quota. Wayback may redirect the replay to a different archived year even when CDX verifies a capture in the requested year; user-facing screenshot captions therefore identify the *requested* year rather than claiming the final rendered content is necessarily from it. The original Wayback link remains available for provenance.
 
 ## Local setup
 
