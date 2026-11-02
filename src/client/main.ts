@@ -149,6 +149,7 @@ export function initSearch(document: Document, fetchImpl: typeof fetch = fetch):
   const screenshotObjectUrls = new Map<number, string>();
   const attemptedCacheLookups = new Set<number>();
   let activeDomain = "";
+  let canonicalDomain = "";
   let searchGeneration = 0;
   const checkedYears = new Map<number, Capture | null>();
   let comparedCaptures: Array<{ year: number; capture: Capture }> = [];
@@ -299,7 +300,8 @@ export function initSearch(document: Document, fetchImpl: typeof fetch = fetch):
     if (!entries) { status.textContent = "Both saved screenshots need to load before you can download a comparison."; return; }
     try {
       const canvas = document.createElement("canvas");
-      renderDiscoveryCard(canvas, activeDomain, entries);
+      const exportDomain = canonicalDomain || activeDomain;
+      renderDiscoveryCard(canvas, exportDomain, entries);
       if (!canvas.toBlob) throw new Error("PNG export is not supported by this browser.");
       downloadDiscovery.disabled = true;
       canvas.toBlob((blob) => {
@@ -308,7 +310,7 @@ export function initSearch(document: Document, fetchImpl: typeof fetch = fetch):
         const url = URL.createObjectURL(blob);
         const link = document.createElement("a");
         link.href = url;
-        link.download = `internet-archaeology-${activeDomain}-${entries[0].year}-vs-${entries[1].year}.png`;
+        link.download = `internet-archaeology-${exportDomain.replace(/[^a-z0-9.-]/gi, "_")}-${entries[0].year}-vs-${entries[1].year}.png`;
         document.body.append(link);
         link.click();
         link.remove();
@@ -327,7 +329,7 @@ export function initSearch(document: Document, fetchImpl: typeof fetch = fetch):
       ...capture,
       image: screenshotImage,
     }));
-    const sources = discoverySources(activeDomain, entries);
+    const sources = discoverySources(canonicalDomain || activeDomain, entries);
     const clipboard = document.defaultView?.navigator.clipboard;
     if (clipboard?.writeText) {
       void clipboard.writeText(sources).then(
@@ -470,6 +472,7 @@ export function initSearch(document: Document, fetchImpl: typeof fetch = fetch):
       comparedCaptures = [];
       activeDomain = domain;
       clearScreenshot();
+      canonicalDomain = "";
     }
     yearList.replaceChildren();
     renderComparison(domain);
@@ -556,6 +559,7 @@ export function initSearch(document: Document, fetchImpl: typeof fetch = fetch):
           return;
         }
 
+        canonicalDomain = payload.domain;
         const years = [...new Set(payload.years)].sort((a, b) => a - b);
         for (const year of years) {
           const item = document.createElement("li");
