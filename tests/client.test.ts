@@ -3,7 +3,22 @@ import { Window } from "happy-dom";
 import { describe, expect, it, vi } from "vitest";
 
 import type { CapturesResponse } from "../src/shared/capture-types";
-import { formatCaptureTimestamp, initSearch } from "../src/client/main";
+import { formatCaptureTimestamp, initSearch as initActualSearch } from "../src/client/main";
+
+// Existing interaction tests assume a few indexed years; wrap the new
+// discovery request so those tests can continue focusing on their own APIs.
+function initSearch(document: Document, fetchImpl: typeof fetch = fetch): void {
+  initActualSearch(document, ((input: RequestInfo | URL, init?: RequestInit) =>
+    String(input).startsWith("/api/years?")
+      ? Response.json({
+          domain: "example.com",
+          years: [1996, 2002, 2003, 2004],
+          source: "internet-archive-cdx",
+          truncated: false,
+          limitation: "Only indexed homepage years are shown.",
+        })
+      : fetchImpl(input, init)) as typeof fetch);
+}
 
 function createPage() {
   const window = new Window({ url: "https://iam.test" });
@@ -102,7 +117,7 @@ describe("formatCaptureTimestamp", () => {
 });
 
 describe("on-demand year explorer", () => {
-  it("shows every year as not checked without making an archive request", async () => {
+  it("shows only indexed years without fetching every year separately", async () => {
     const window = createPage();
     let requestCount = 0;
     const fakeFetch: typeof fetch = async () => {
@@ -116,10 +131,10 @@ describe("on-demand year explorer", () => {
 
     const yearButtons = window.document.querySelectorAll("#year-list button");
     expect(requestCount).toBe(0);
-    expect(yearButtons).toHaveLength(new Date().getUTCFullYear() - 1996 + 1);
+    expect(yearButtons).toHaveLength(4);
     expect(yearButtons[0].getAttribute("data-year")).toBe("1996");
-    expect(yearButtons[0].textContent).toContain("Not checked");
-    expect(window.document.querySelector("#status")?.textContent).toBe("Choose one year to check for example.com.");
+    expect(yearButtons[0].textContent).toContain("In archive index");
+    expect(window.document.querySelector("#status")?.textContent).toBe("Found 4 indexed years for example.com. Select a year to verify its capture.");
   });
 
   it("checks only the selected year and shows a pending state", async () => {
@@ -144,7 +159,7 @@ describe("on-demand year explorer", () => {
     expect(requestedUrl).toBe("/api/captures?domain=example.com&year=2002");
     expect(selectedButton?.textContent).toContain("Checking…");
     expect((selectedButton as unknown as HTMLButtonElement).disabled).toBe(true);
-    expect(window.document.querySelector('[data-year="2003"]')?.textContent).toContain("Not checked");
+    expect(window.document.querySelector('[data-year="2003"]')?.textContent).toContain("In archive index");
     resolveResponse(Response.json(capturePayload()));
     await pendingClick;
   });
@@ -178,6 +193,77 @@ describe("on-demand year explorer", () => {
     expect(window.document.querySelector("#screenshot-result-second")?.hasAttribute("hidden")).toBe(false);
     expect((window.document.querySelector("#screenshot-token") as unknown as HTMLInputElement).value).toBe("");
     expect((window.document.querySelector('[data-screenshot-year="2002"]') as unknown as HTMLButtonElement).disabled).toBe(true);
+  });
+
+  it("shows only the actual indexed years for a late-launch website", async () => {
+    const window = createPage();
+    const requests: string[] = [];
+    const fakeFetch: typeof fetch = async (input) => {
+      requests.push(String(input));
+      if (String(input).startsWith("/api/years?")) {
+        return Response.json({
+          domain: "youngsite.example",
+          years: [2024, 2026],
+          source: "internet-archive-cdx",
+          truncated: false,
+          limitation: "Only matching indexed years are listed.",
+        });
+      }
+      const year = Number(new URL(String(input), "https://iam.test").searchParams.get("year"));
+      return Response.json(capturePayload(year, "youngsite.example"));
+    };
+    initActualSearch(window.document as unknown as Document, fakeFetch);
+    (window.document.querySelector("#domain") as unknown as HTMLInputElement).value = "youngsite.example";
+    await submit(window);
+    expect(Array.from(window.document.querySelectorAll("#year-list button")).map((button) => button.getAttribute("data-year"))).toEqual(["2024", "2026"]);
+    expect(window.document.querySelector('[data-year="1996"]')).toBeNull();
+    expect(window.document.querySelector("#capture-list")?.children).toHaveLength(0);
+    expect(requests).toHaveLength(1);
+    await clickYear(window, 2024);
+    expect(window.document.querySelectorAll("#capture-list li")).toHaveLength(1);
+    expect(requests.filter((url) => url.startsWith("/api/captures?"))).toHaveLength(1);
+  });
+
+  it("shows an honest empty index without inventing a 1996 timeline", async () => {
+    const window = createPage();
+    initActualSearch(window.document as unknown as Document, async () => Response.json({
+      domain: "notindexed.example",
+      years: [],
+      source: "internet-archive-cdx",
+      truncated: false,
+      limitation: "No evidence is not proof of no website.",
+    }));
+    (window.document.querySelector("#domain") as unknown as HTMLInputElement).value = "notindexed.example";
+    await submit(window);
+    expect(window.document.querySelectorAll("#year-list button")).toHaveLength(0);
+    expect(window.document.querySelector("#results")?.hasAttribute("hidden")).toBe(false);
+    expect(window.document.querySelector("#status")?.textContent).toContain("does not prove the site was offline");
+  });
+
+  it("does not mistake an archive index failure for no historical captures", async () => {
+    const window = createPage();
+    initActualSearch(window.document as unknown as Document, async () =>
+      Response.json({ error: { code: "ARCHIVE_RATE_LIMITED", message: "The Internet Archive is rate limiting requests." } }, { status: 503 }));
+    (window.document.querySelector("#domain") as unknown as HTMLInputElement).value = "example.com";
+    await submit(window);
+    expect(window.document.querySelector("#status")?.textContent).toBe("The Internet Archive is rate limiting requests.");
+    expect(window.document.querySelector("#results")?.hasAttribute("hidden")).toBe(true);
+    expect(window.document.querySelectorAll("#year-list button")).toHaveLength(0);
+  });
+
+  it("states when the bounded year index may have been truncated", async () => {
+    const window = createPage();
+    initActualSearch(window.document as unknown as Document, async () => Response.json({
+      domain: "example.com",
+      years: [2019, 2020],
+      source: "internet-archive-cdx",
+      truncated: true,
+      limitation: "Only a bounded subset was checked; additional years may exist.",
+    }));
+    (window.document.querySelector("#domain") as unknown as HTMLInputElement).value = "example.com";
+    await submit(window);
+    expect(window.document.querySelector(".timeline-note")?.textContent).toContain("additional years may exist");
+    expect(window.document.querySelectorAll("#year-list button")).toHaveLength(2);
   });
 
   it("renders a verified capture as a safe Wayback link", async () => {
