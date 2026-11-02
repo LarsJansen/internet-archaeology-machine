@@ -74,3 +74,16 @@ body { background: #f4f7fb; color: var(--iam-ink); }
 @media (max-width: 900px) { .hero { grid-template-columns: 1fr; } .hero-art { display: none; } }
 @media (max-width: 650px) { .brand-title { font-size: .88rem; } .search-row, .capture-list, .visual-grid { grid-template-columns: 1fr; } .hero { min-height: auto; } .hero-points { gap: .7rem 1rem; } .year-list { grid-template-columns: repeat(auto-fill, minmax(98px, 1fr)); } .page-body { padding-top: .6rem; } }
 @media (prefers-reduced-motion: reduce) { .year-list button { transition: none; } }
+
+/* Share actions, with a quiet private curator sign-in in the footer. */
+.share-card-actions { border-color: #cbdcf4; background: linear-gradient(115deg, #fff, #f5f9ff); }
+.share-card-actions .card-body { padding: 1.2rem 1.4rem; }
+.share-card-actions .card-footer { font-size: .8rem; line-height: 1.5; }
+.owner-access { display: inline-block; position: relative; vertical-align: middle; margin-left: .25rem; color: #64748b; }
+.owner-access summary { cursor: pointer; text-decoration: underline; text-underline-offset: 2px; list-style: none; font-size: .8rem; }
+.owner-access summary::-webkit-details-marker { display: none; }
+.owner-access[open] { display: block; margin-top: 1rem; padding: 1rem; border: 1px solid #dbe5f1; border-radius: 10px; background: #fff; max-width: 345px; color: #334155; }
+.owner-access .form-control { min-width: 0; }
+.owner-access .btn { min-height: 30px; }
+.owner-card { border-left: 4px solid #245cc5; }
+@media (max-width: 650px) { .share-card-actions .d-flex > .btn { width: 100%; } }
