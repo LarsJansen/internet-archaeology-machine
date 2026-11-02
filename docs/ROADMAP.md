@@ -22,11 +22,18 @@ The production deployment and authentic CDX access were verified by the project 
 - Reuse checked-year results for the active domain and clear stale state when the domain changes.
 - Let visitors replace either compared year without changing the bounded archive API.
 
-## Phase 2A — current pull request
+## Phase 2A — complete
 
-- Add one owner-gated screenshot action to a verified capture.
-- Re-verify domain and year server-side before one Cloudflare Browser Run Quick Action.
-- Show one accessible screenshot without screenshot history, batching, or public quota access.
+- One owner-gated screenshot action per verified capture, backed by Cloudflare Browser Run.
+- Re-verify domain and year server-side before one Browser Run Quick Action.
+- Keep owner credentials out of links and storage.
+
+## Phase 2B — complete
+
+- Tabler-based responsive redesign, with an archive-oriented light theme.
+- Two independent screenshot panels mapped to the selected verified years.
+- Cache screenshot object URLs only in the current tab, reuse on year replacement, and revoke on domain change.
+- Preserve explicit owner action per screenshot; no batch requests or quota-using background work.
 
 ## Full Phase 1 timeline — not implemented
 
