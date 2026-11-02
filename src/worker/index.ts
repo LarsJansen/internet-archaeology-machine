@@ -1,5 +1,5 @@
-import type { ApiErrorResponse, CapturesResponse } from "../shared/capture-types";
-import { ArchiveProviderError, fetchCaptures, fetchYearCaptures } from "./archive-provider";
+import type { ApiErrorResponse, CapturesResponse, YearsResponse } from "../shared/capture-types";
+import { ArchiveProviderError, fetchCaptures, fetchYearCaptures, fetchIndexedYears } from "./archive-provider";
 import { normalizeDomain } from "./domain-validation";
 import { screenshotImage, screenshotKey, screenshotMetadata } from "./screenshot-store";
 
@@ -198,6 +198,32 @@ export async function handleRequest(
 
   if (url.pathname === "/api/health") {
     return json({ status: "ok" }, { headers: { "Cache-Control": "no-store" } });
+  }
+
+  if (url.pathname === "/api/years") {
+    const validation = normalizeDomain(url.searchParams.get("domain") ?? "");
+    if (!validation.ok) return errorResponse(validation.code, validation.message, 400);
+    try {
+      const indexed = await fetchIndexedYears(validation.domain, fetchImpl);
+      const body: YearsResponse = {
+        domain: validation.domain,
+        years: indexed.years,
+        truncated: indexed.truncated,
+        source: "internet-archive-cdx",
+        limitation: indexed.truncated
+          ? "Only a bounded subset of indexed homepage records was checked; additional years may exist. Each selected year is independently verified."
+          : "Only years with matching indexed homepage captures are listed. The Internet Archive has gaps; absent years do not prove the site was offline. Each selected year is independently verified.",
+      };
+      return json(body, { headers: { "Cache-Control": "public, max-age=300, s-maxage=3600" } });
+    } catch (error) {
+      if (error instanceof ArchiveProviderError) {
+        if (error.code === "ARCHIVE_RATE_LIMITED") {
+          return errorResponse(error.code, error.message, 503, { "Retry-After": "60" });
+        }
+        return errorResponse(error.code, error.message, 502);
+      }
+      return errorResponse("INTERNAL_ERROR", "The archive year index could not be loaded.", 500);
+    }
   }
 
   if (url.pathname === "/api/captures") {

@@ -1,7 +1,6 @@
-import type { ApiErrorResponse, Capture, CapturesResponse } from "../shared/capture-types";
+import type { ApiErrorResponse, Capture, CapturesResponse, YearsResponse } from "../shared/capture-types";
 import "./styles.css";
 
-const FIRST_ARCHIVE_YEAR = 1996;
 const MONTHS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
 
 export function formatCaptureTimestamp(timestamp: string): string {
@@ -21,6 +20,22 @@ function isCapturesResponse(value: unknown): value is CapturesResponse {
   if (!value || typeof value !== "object") return false;
   const candidate = value as Partial<CapturesResponse>;
   return typeof candidate.domain === "string" && candidate.source === "internet-archive-cdx" && Array.isArray(candidate.captures);
+}
+
+function isYearsResponse(value: unknown): value is YearsResponse {
+  if (!value || typeof value !== "object") return false;
+  const candidate = value as Partial<YearsResponse>;
+  if (
+    typeof candidate.domain !== "string" ||
+    candidate.source !== "internet-archive-cdx" ||
+    !Array.isArray(candidate.years) ||
+    typeof candidate.truncated !== "boolean" ||
+    typeof candidate.limitation !== "string"
+  ) return false;
+  const currentYear = new Date().getUTCFullYear();
+  return candidate.years.every((year) =>
+    typeof year === "number" && Number.isInteger(year) && year >= 1996 && year <= currentYear
+  );
 }
 
 function errorMessage(value: unknown): string {
@@ -88,6 +103,7 @@ export function initSearch(document: Document, fetchImpl: typeof fetch = fetch):
   const status = document.querySelector<HTMLElement>("#status");
   const results = document.querySelector<HTMLElement>("#results");
   const heading = document.querySelector<HTMLElement>("#results-heading");
+  const timelineNote = document.querySelector<HTMLElement>(".timeline-note");
   const yearList = document.querySelector<HTMLOListElement>("#year-list");
   const selectedCapture = document.querySelector<HTMLElement>("#selected-capture");
   const captureHeading = document.querySelector<HTMLElement>("#capture-heading");
@@ -117,6 +133,7 @@ export function initSearch(document: Document, fetchImpl: typeof fetch = fetch):
   }
 
   let requestPending = false;
+  let timelinePending = false;
   let screenshotPending = false;
   const screenshotObjectUrls = new Map<number, string>();
   const attemptedCacheLookups = new Set<number>();
@@ -317,12 +334,11 @@ export function initSearch(document: Document, fetchImpl: typeof fetch = fetch):
 
   form.addEventListener("submit", (event) => {
     event.preventDefault();
-    if (requestPending || screenshotPending) return;
+    if (requestPending || screenshotPending || timelinePending) return;
 
     const domain = input.value.trim();
-    const currentYear = new Date().getUTCFullYear();
+    const generation = ++searchGeneration;
     if (domain !== activeDomain) {
-      searchGeneration += 1;
       checkedYears.clear();
       comparedCaptures = [];
       activeDomain = domain;
@@ -330,9 +346,10 @@ export function initSearch(document: Document, fetchImpl: typeof fetch = fetch):
     }
     yearList.replaceChildren();
     renderComparison(domain);
+    results.hidden = true;
 
     const checkYear = async (year: number, yearButton: HTMLButtonElement) => {
-      if (requestPending || screenshotPending) return;
+      if (requestPending || screenshotPending || timelinePending) return;
       if (checkedYears.has(year)) {
         const cachedCapture = checkedYears.get(year);
         if (cachedCapture) {
@@ -392,37 +409,67 @@ export function initSearch(document: Document, fetchImpl: typeof fetch = fetch):
       }
     };
 
-    for (let year = FIRST_ARCHIVE_YEAR; year <= currentYear; year += 1) {
-      const item = document.createElement("li");
-      const yearButton = document.createElement("button");
-      const yearLabel = document.createElement("span");
-      const yearState = document.createElement("span");
-
-      yearButton.type = "button";
-      yearButton.dataset.year = String(year);
-      yearButton.dataset.state = "unchecked";
-      yearButton.setAttribute("aria-label", `${year}: Not checked`);
-      yearLabel.className = "year-label";
-      yearLabel.textContent = String(year);
-      yearState.className = "year-state";
-      yearState.textContent = "Not checked";
-      yearButton.append(yearLabel, yearState);
-      yearButton.addEventListener("click", () => void checkYear(year, yearButton));
-      item.append(yearButton);
-      yearList.append(item);
-      if (checkedYears.has(year)) {
-        const cachedCapture = checkedYears.get(year);
-        setYearState(
-          yearButton,
-          cachedCapture ? "Capture found" : "No capture returned",
-          cachedCapture ? "found" : "empty",
+    timelinePending = true;
+    formButton.disabled = true;
+    status.textContent = `Finding indexed homepage years for ${domain}…`;
+    void (async () => {
+      try {
+        const response = await fetchImpl(
+          `/api/years?domain=${encodeURIComponent(domain)}`,
+          { headers: { Accept: "application/json" } },
         );
-      }
-    }
+        const payload: unknown = await response.json();
+        if (generation !== searchGeneration) return;
+        if (!response.ok) {
+          status.textContent = errorMessage(payload);
+          return;
+        }
+        if (!isYearsResponse(payload)) {
+          status.textContent = "The archive year index returned an unexpected response.";
+          return;
+        }
 
-    heading.textContent = `Years to check for ${domain}`;
-    status.textContent = `Choose one year to check for ${domain}.`;
-    results.hidden = false;
+        const years = [...new Set(payload.years)].sort((a, b) => a - b);
+        for (const year of years) {
+          const item = document.createElement("li");
+          const yearButton = document.createElement("button");
+          const yearLabel = document.createElement("span");
+          const yearState = document.createElement("span");
+
+          yearButton.type = "button";
+          yearButton.dataset.year = String(year);
+          yearButton.dataset.state = "indexed";
+          yearButton.setAttribute("aria-label", `${year}: Indexed capture found, click to verify`);
+          yearLabel.className = "year-label";
+          yearLabel.textContent = String(year);
+          yearState.className = "year-state";
+          yearState.textContent = "In archive index";
+          yearButton.append(yearLabel, yearState);
+          yearButton.addEventListener("click", () => void checkYear(year, yearButton));
+          item.append(yearButton);
+          yearList.append(item);
+          if (checkedYears.has(year)) {
+            const cachedCapture = checkedYears.get(year);
+            setYearState(
+              yearButton,
+              cachedCapture ? "Capture found" : "No capture returned",
+              cachedCapture ? "found" : "empty",
+            );
+          }
+        }
+        heading.textContent = `Indexed years for ${payload.domain}`;
+        if (timelineNote) timelineNote.textContent = payload.limitation;
+        status.textContent = years.length
+          ? `Found ${years.length} indexed ${years.length === 1 ? "year" : "years"} for ${payload.domain}. Select a year to verify its capture.`
+          : `No matching homepage captures were found in the archive index for ${payload.domain}. This does not prove the site was offline.`;
+        results.hidden = false;
+      } catch {
+        if (generation === searchGeneration) status.textContent = "The archive year index could not be reached. Try again later.";
+      } finally {
+        timelinePending = false;
+        formButton.disabled = false;
+      }
+    })();
   });
 }
 

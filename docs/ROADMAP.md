@@ -12,7 +12,7 @@ The production deployment and authentic CDX access were verified by the project 
 
 ## Phase 1A — complete
 
-- Show years from 1996 through the current year as explicitly not checked.
+- Initial on-demand year grid (replaced with real indexed-year discovery in Issue #12).
 - Send one bounded CDX query only when a visitor chooses a year.
 - Show one verified capture, no returned capture, timeout, rate limit, or upstream failure without scanning other years.
 
@@ -35,12 +35,18 @@ The production deployment and authentic CDX access were verified by the project 
 - Cache screenshot object URLs only in the current tab, reuse on year replacement, and revoke on domain change.
 - Preserve explicit owner action per screenshot; no batch requests or quota-using background work.
 
-## Phase 3A — PR pending R2 bucket provisioning
+## Phase 3A — complete
 
 - Add R2 Standard screenshot storage and per-image provenance metadata.
 - Show cached PNGs publicly by exact verified capture timestamp; no owner token or Browser Run required for reads.
 - Preserve owner-only generation and avoid duplicate browser renders on cache hits.
-- Do not merge until the named R2 bucket is ready, to protect production deployment.
+- Cloudflare R2 bucket provisioned and shared screenshot cache smoke-tested in production.
+
+## Indexed-year discovery (Issue #12) — complete
+
+- Discover only matching homepage years using a single bounded CDX `collapse=timestamp:4` request.
+- Display no invented 1996–present year grid and only show comparison panels after individual capture verification.
+- Explain partial coverage, index errors and empty results honestly.
 
 ## Full Phase 1 timeline — not implemented
 
