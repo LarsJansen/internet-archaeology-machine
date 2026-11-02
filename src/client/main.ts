@@ -183,9 +183,9 @@ export function initSearch(document: Document, fetchImpl: typeof fetch = fetch):
       }
       if (slot.image) {
         slot.image.src = objectUrl;
-        slot.image.alt = `Screenshot of the archived ${domain} homepage capture from ${selected.year}`;
+        slot.image.alt = `Wayback replay screenshot requested for ${domain} in ${selected.year}; the replay may redirect to a different archived date`;
       }
-      if (slot.caption) slot.caption.textContent = `${selected.year} archived homepage screenshot for ${domain}`;
+      if (slot.caption) slot.caption.textContent = `Replay requested for ${domain} in ${selected.year}. Wayback may redirect to another date.`;
       if (slot.result) slot.result.hidden = false;
       if (slot.placeholder) slot.placeholder.hidden = true;
     });
