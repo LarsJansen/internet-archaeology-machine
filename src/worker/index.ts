@@ -335,6 +335,30 @@ export async function handleRequest(
         return errorResponse("SCREENSHOT_STORAGE_ERROR", "Could not check screenshot storage safely.", 503);
       }
       if (existing) return screenshotImage(existing.body, "cached");
+      // Coordinate owner and public generation against the same global lease.
+      // Existing owner integrations without the new binding remain supported.
+      if (env.SCREENSHOT_BUDGET) {
+        const gate = env.SCREENSHOT_BUDGET.getByName("public-screenshot-gate-v1");
+        let lease: string;
+        try {
+          const admission = await gate.reserve(key, null, true);
+          if (!admission.allowed) {
+            return errorResponse(admission.code, "Another screenshot is in progress. Try again shortly.", 429, {
+              "Retry-After": String(admission.retryAfter),
+            });
+          }
+          lease = admission.lease;
+        } catch {
+          return errorResponse("PUBLIC_SCREENSHOTS_UNAVAILABLE", "The screenshot coordinator is temporarily unavailable.", 503);
+        }
+        try {
+          const stored = await env.SCREENSHOTS.get(key);
+          if (stored) return screenshotImage(stored.body, "cached");
+          return await renderAndSave(env, validation.domain, candidate.year, capture, key);
+        } finally {
+          try { await gate.release(lease); } catch { /* Lease expires after 90 seconds. */ }
+        }
+      }
       return await renderAndSave(env, validation.domain, candidate.year, capture, key);
     } catch (error) {
       if (error instanceof ArchiveProviderError) {
