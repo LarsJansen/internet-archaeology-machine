@@ -41,6 +41,130 @@ function createBucket() {
 }
 
 describe("Worker API", () => {
+  const publicRequest = (body: unknown = { domain: "example.com", year: 2002, timestamp: "20020120142510" }, headers: Record<string, string> = {}) =>
+    request("/api/screenshot/request", {
+      method: "POST",
+      headers: { "Content-Type": "application/json", "CF-Connecting-IP": "203.0.113.10", Origin: "https://iam.test", ...headers },
+      body: JSON.stringify(body),
+    });
+
+  function publicEnv(
+    bucket: ReturnType<typeof createBucket>,
+    override: {
+      reserve?: (key: string, visitor: string | null, owner: boolean) => Promise<unknown>;
+      quickAction?: () => Promise<Response>;
+    } = {},
+  ) {
+    const activity = { reserve: 0, release: 0, browsers: 0, keys: [] as string[], visitors: [] as string[] };
+    const gate = {
+      reserve: async (key: string, visitor: string | null, owner: boolean) => {
+        activity.reserve++;
+        activity.keys.push(key);
+        activity.visitors.push(visitor ?? "");
+        expect(owner).toBe(false);
+        return override.reserve?.(key, visitor, owner) ?? { allowed: true, lease: "lease-1" };
+      },
+      release: async (lease: string) => { expect(lease).toBe("lease-1"); activity.release++; },
+    };
+    const env = {
+      SCREENSHOTS: bucket.binding,
+      SCREENSHOT_ACCESS_TOKEN: "owner-secret",
+      PUBLIC_SCREENSHOTS_ENABLED: "true",
+      SCREENSHOT_BUDGET: { getByName: () => gate },
+      BROWSER: {
+        quickAction: async () => {
+          activity.browsers++;
+          return override.quickAction?.() ?? new Response(new Uint8Array([137, 80, 78, 71]), { headers: { "Content-Type": "image/png" } });
+        },
+      },
+    } as unknown as Parameters<typeof handleRequest>[2];
+    return { env, activity };
+  }
+
+  it("lets a visitor generate a missing screenshot once and serves its saved R2 result", async () => {
+    const bucket = createBucket();
+    const { env, activity } = publicEnv(bucket);
+    const first = await handleRequest(publicRequest(), async () => Response.json(fixture), env);
+    expect(first.status).toBe(200);
+    expect(first.headers.get("x-iam-screenshot-source")).toBe("generated");
+    expect(activity.reserve).toBe(1);
+    expect(activity.release).toBe(1);
+    expect(activity.browsers).toBe(1);
+    expect(activity.visitors[0]).toMatch(/^[a-f0-9]{64}$/);
+    expect(activity.keys[0]).toContain("example.com/20020120142510.png");
+    const second = await handleRequest(publicRequest(), async () => { throw Error("no new CDX"); }, env);
+    expect(second.status).toBe(200);
+    expect(second.headers.get("x-iam-screenshot-source")).toBe("cached");
+    expect(activity.reserve).toBe(1);
+    expect(activity.browsers).toBe(1);
+  });
+
+  it("never starts a browser without a configured durable budget", async () => {
+    const bucket = createBucket();
+    let browsers = 0;
+    const response = await handleRequest(publicRequest(), async () => { throw Error("no CDX"); }, {
+      SCREENSHOTS: bucket.binding,
+      SCREENSHOT_ACCESS_TOKEN: "owner-secret",
+      PUBLIC_SCREENSHOTS_ENABLED: "true",
+      BROWSER: { quickAction: async () => { browsers++; throw Error("unsafe"); } } as unknown as BrowserRun,
+    });
+    expect(response.status).toBe(503);
+    await expect(response.json()).resolves.toMatchObject({ error: { code: "PUBLIC_SCREENSHOTS_UNAVAILABLE" } });
+    expect(browsers).toBe(0);
+  });
+
+  it("honours site and visitor quotas, busy leases and cooldowns without contacting the archive", async () => {
+    for (const code of ["SITE_BUDGET_EXHAUSTED", "VISITOR_BUDGET_EXHAUSTED", "SCREENSHOT_BUSY", "SCREENSHOT_COOLDOWN"]) {
+      const { env, activity } = publicEnv(createBucket(), {
+        reserve: async () => ({ allowed: false, code, retryAfter: 30 }),
+      });
+      const response = await handleRequest(publicRequest(), async () => { throw Error("CDX must not be called"); }, env);
+      expect(response.status).toBe(429);
+      expect(response.headers.get("retry-after")).toBe("30");
+      await expect(response.json()).resolves.toMatchObject({ error: { code } });
+      expect(activity.browsers).toBe(0);
+      expect(activity.release).toBe(0);
+    }
+  });
+
+  it("rejects a false archive timestamp even if the requested year matches", async () => {
+    const { env, activity } = publicEnv(createBucket());
+    const response = await handleRequest(
+      publicRequest({ domain: "example.com", year: 2002, timestamp: "20021231120000" }),
+      async () => Response.json(fixture), env,
+    );
+    expect(response.status).toBe(409);
+    await expect(response.json()).resolves.toMatchObject({ error: { code: "SCREENSHOT_CAPTURE_CHANGED" } });
+    expect(activity.browsers).toBe(0);
+    expect(activity.release).toBe(1);
+  });
+
+  it("does not allow public browsers to generate for malformed inputs, cross-site requests or unverified IPs", async () => {
+    const { env, activity } = publicEnv(createBucket());
+    const invalid = [
+      publicRequest({ domain: "localhost", year: 2002, timestamp: "20020120142510" }),
+      publicRequest({ domain: "example.com", year: 2002, timestamp: "20190120142510" }),
+      publicRequest({ domain: "example.com", year: 1995, timestamp: "19950120142510" }),
+      publicRequest(undefined, { Origin: "https://attacker.example" }),
+      publicRequest(undefined, { "Content-Type": "text/plain" }),
+      publicRequest(undefined, { "CF-Connecting-IP": "" }),
+    ];
+    for (const attempt of invalid) {
+      const response = await handleRequest(attempt, async () => { throw Error("must not fetch CDX"); }, env);
+      expect(response.status).toBeGreaterThanOrEqual(400);
+    }
+    expect(activity.browsers).toBe(0);
+    expect(activity.reserve).toBe(0);
+  });
+
+  it("releases the global lease when Browser Run fails so other visitors can retry", async () => {
+    const { env, activity } = publicEnv(createBucket(), { quickAction: async () => { throw Error("render failed"); } });
+    const response = await handleRequest(publicRequest(), async () => Response.json(fixture), env);
+    expect(response.status).toBe(502);
+    expect(activity.release).toBe(1);
+  });
+
+
   it("allows anyone to fetch a stored screenshot by exact archive timestamp without Browser Run or CDX", async () => {
     const bucket = createBucket();
     const png = new Uint8Array([137, 80, 78, 71]);
