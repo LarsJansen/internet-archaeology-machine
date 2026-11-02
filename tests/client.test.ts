@@ -290,7 +290,7 @@ describe("on-demand year explorer", () => {
     expect(window.document.querySelector("#selected-capture")?.hasAttribute("hidden")).toBe(false);
   });
 
-  it("keeps screenshot-generation controls hidden for public visitors", async () => {
+  it("shows a public on-demand screenshot button but does not generate automatically", async () => {
     const window = createPage();
     const requests: string[] = [];
     initActualSearch(window.document as unknown as Document, async (input) => {
@@ -307,11 +307,11 @@ describe("on-demand year explorer", () => {
     await submit(window);
     await clickYear(window, 2002);
     expect(window.document.querySelector("#owner-tools")?.hasAttribute("hidden")).toBe(true);
-    expect(window.document.querySelector('[data-screenshot-year="2002"]')).toBeNull();
-    expect(requests.some((url) => url === "/api/screenshot")).toBe(false);
+    expect(window.document.querySelector('[data-screenshot-year="2002"]')?.textContent).toContain("Show this snapshot");
+    expect(requests.some((url) => url === "/api/screenshot/request")).toBe(false);
   });
 
-  it("signs in a curator once, enables generation, and hides controls again on logout", async () => {
+  it("signs in a curator once, changes generation controls, and restores public controls on logout", async () => {
     const window = createPage();
     const access = window.document.createElement("div");
     access.innerHTML = `<form id="owner-login-form"><input id="owner-login-token" type="password" /></form>
@@ -334,7 +334,7 @@ describe("on-demand year explorer", () => {
     (window.document.querySelector("#domain") as unknown as HTMLInputElement).value = "example.com";
     await submit(window);
     await clickYear(window, 2002);
-    expect(window.document.querySelector('[data-screenshot-year="2002"]')).toBeNull();
+    expect(window.document.querySelector('[data-screenshot-year="2002"]')?.textContent).toContain("Show this snapshot");
     const input = window.document.querySelector("#owner-login-token") as unknown as HTMLInputElement;
     input.value = "test-owner-token";
     window.document.querySelector("#owner-login-form")?.dispatchEvent(new window.Event("submit", { bubbles: true, cancelable: true }));
@@ -342,12 +342,65 @@ describe("on-demand year explorer", () => {
     expect(calls).toContain("/api/owner/login");
     expect(input.value).toBe("");
     expect(window.document.querySelector("#owner-tools")?.hasAttribute("hidden")).toBe(false);
-    expect(window.document.querySelector('[data-screenshot-year="2002"]')).not.toBeNull();
+    expect(window.document.querySelector('[data-screenshot-year="2002"]')?.textContent).toContain("Save missing screenshot");
     (window.document.querySelector("#owner-logout-button") as unknown as HTMLButtonElement).click();
     await new Promise((resolve) => setTimeout(resolve, 0));
     expect(calls).toContain("/api/owner/logout");
-    expect(window.document.querySelector('[data-screenshot-year="2002"]')).toBeNull();
+    expect(window.document.querySelector('[data-screenshot-year="2002"]')?.textContent).toContain("Show this snapshot");
     expect(window.document.querySelector("#owner-tools")?.hasAttribute("hidden")).toBe(true);
+  });
+
+  it("requests public screenshot generation with the verified CDX timestamp, never an owner token", async () => {
+    const window = createPage();
+    let requestBody: unknown;
+    const requests: string[] = [];
+    initActualSearch(window.document as unknown as Document, async (input, init) => {
+      requests.push(String(input));
+      if (String(input) === "/api/owner/session") return Response.json({ authenticated: false });
+      if (String(input).startsWith("/api/years?")) {
+        return Response.json({ domain: "example.com", years: [2002], source: "internet-archive-cdx", truncated: false, limitation: "Indexed years." });
+      }
+      if (String(input) === "/api/screenshot/request") {
+        requestBody = JSON.parse(String(init?.body));
+        expect(new Headers(init?.headers).has("x-screenshot-token")).toBe(false);
+        return new Response(new Uint8Array([137, 80, 78, 71]), { headers: { "Content-Type": "image/png" } });
+      }
+      if (String(input).startsWith("/api/screenshot?")) {
+        return Response.json({ error: { code: "SCREENSHOT_NOT_CACHED" } }, { status: 404 });
+      }
+      return Response.json(capturePayload(2002));
+    });
+    (window.document.querySelector("#domain") as unknown as HTMLInputElement).value = "example.com";
+    await submit(window);
+    await clickYear(window, 2002);
+    expect(requests).not.toContain("/api/screenshot/request");
+    await clickScreenshot(window, 2002);
+    expect(requestBody).toEqual({ domain: "example.com", year: 2002, timestamp: "20020120142510" });
+    expect(window.document.querySelector("#screenshot-result")?.hasAttribute("hidden")).toBe(false);
+    expect(window.document.querySelector('[data-screenshot-year="2002"]')).toBeNull();
+  });
+
+  it("shows an honest daily-budget error without hiding the verified archive record", async () => {
+    const window = createPage();
+    initActualSearch(window.document as unknown as Document, async (input) => {
+      if (String(input) === "/api/owner/session") return Response.json({ authenticated: false });
+      if (String(input).startsWith("/api/years?")) {
+        return Response.json({ domain: "example.com", years: [2002], source: "internet-archive-cdx", truncated: false, limitation: "Indexed years." });
+      }
+      if (String(input) === "/api/screenshot/request") return Response.json(
+        { error: { code: "SITE_BUDGET_EXHAUSTED", message: "Today's public screenshot allowance is full. Saved screenshots are still available." } },
+        { status: 429, headers: { "Retry-After": "3600" } },
+      );
+      if (String(input).startsWith("/api/screenshot?")) return Response.json({ error: { code: "SCREENSHOT_NOT_CACHED" } }, { status: 404 });
+      return Response.json(capturePayload(2002));
+    });
+    (window.document.querySelector("#domain") as unknown as HTMLInputElement).value = "example.com";
+    await submit(window);
+    await clickYear(window, 2002);
+    await clickScreenshot(window, 2002);
+    expect(window.document.querySelector("#status")?.textContent).toContain("allowance is full");
+    expect(window.document.querySelector("#capture-list")?.children).toHaveLength(1);
+    expect(window.document.querySelector('[data-screenshot-year="2002"]')).not.toBeNull();
   });
 
   it("shows PNG sharing only after two real captures are selected", async () => {
@@ -415,7 +468,7 @@ describe("on-demand year explorer", () => {
 
       expect(window.document.querySelector("#screenshot-result")?.hasAttribute("hidden")).toBe(false);
       expect(window.document.querySelector("#status")?.textContent).toBe(
-        "Screenshot saved for everyone to view: example.com in 2002.",
+        "New snapshot saved for everyone: example.com in 2002.",
       );
     },
   );
