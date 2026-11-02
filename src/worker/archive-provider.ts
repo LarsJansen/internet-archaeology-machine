@@ -3,6 +3,9 @@ import type { Capture } from "../shared/capture-types";
 const CDX_ENDPOINT = "https://web.archive.org/cdx/search/cdx";
 const CDX_FIELDS = ["timestamp", "original", "statuscode", "mimetype", "digest", "length"] as const;
 const MAX_CAPTURES = 5;
+// At most one result per adjacent CDX year group. The bound also prevents
+// unbounded scans if variants/duplicates survive archive-side collapsing.
+const MAX_YEAR_INDEX_RECORDS = 128;
 const REQUEST_TIMEOUT_MS = 8_000;
 
 export type ArchiveErrorCode =
@@ -166,4 +169,27 @@ export function fetchYearCaptures(domain: string, year: number, fetchImpl: typeo
   url.searchParams.set("from", String(year));
   url.searchParams.set("to", String(year));
   return requestCaptures(url, 1, fetchImpl);
+}
+
+export interface IndexedYears {
+  years: number[];
+  truncated: boolean;
+}
+
+// A single bounded CDX query, rather than one request for every possible year.
+// The CDX index collapses adjacent records with the same YYYY prefix; it may
+// return the same year more than once for different homepage URL variants.
+export async function fetchIndexedYears(
+  domain: string,
+  fetchImpl: typeof fetch = fetch,
+): Promise<IndexedYears> {
+  const url = createCdxUrl(domain, MAX_YEAR_INDEX_RECORDS);
+  url.searchParams.set("from", "1996");
+  url.searchParams.set("to", String(new Date().getUTCFullYear()));
+  url.searchParams.set("collapse", "timestamp:4");
+  const captures = await requestCaptures(url, MAX_YEAR_INDEX_RECORDS, fetchImpl);
+  const years = [...new Set(captures.map((capture) => Number(capture.timestamp.slice(0, 4))))]
+    .filter((year) => year >= 1996 && year <= new Date().getUTCFullYear())
+    .sort((a, b) => a - b);
+  return { years, truncated: captures.length >= MAX_YEAR_INDEX_RECORDS };
 }
