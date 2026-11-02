@@ -62,3 +62,12 @@ Normalize homepage variants, merge/de-duplicate capture metadata, group authenti
 ## Later phases — not implemented
 
 Curated examples, discovery collections, richer shareable investigation URLs and source-code archaeology remain separate, reviewable projects.
+
+
+## Phase 4 — public screenshot requests
+
+- Public users can request a missing screenshot without login after a fresh CDX timestamp check.
+- R2 cache-first; generation uses a single SQLite Durable Object with global/per-visitor budgets, cooldowns and leases.
+- Public attempts are capped at six/day site-wide and two/day per visitor, with owner generation continuing to function.
+- Preserve a clear disclaimer that replay content may differ from the requested archive date.
+- No automatic crawling or mass screenshot generation.
