@@ -2,6 +2,7 @@ import type { ApiErrorResponse, CapturesResponse, YearsResponse } from "../share
 import { ArchiveProviderError, fetchCaptures, fetchYearCaptures, fetchIndexedYears } from "./archive-provider";
 import { normalizeDomain } from "./domain-validation";
 import { screenshotImage, screenshotKey, screenshotMetadata } from "./screenshot-store";
+import { createOwnerSession, verifyOwnerSession, ownerSessionCookie, clearOwnerSessionCookie, hasValidRequestOrigin } from "./owner-session";
 
 const ARCHIVE_LIMITATION =
   "Results are a small sample of surviving indexed homepage captures. Gaps do not prove the site was offline.";
@@ -48,6 +49,38 @@ export async function handleRequest(
 ): Promise<Response> {
   const url = new URL(request.url);
 
+  if (url.pathname === "/api/owner/session") {
+    if (request.method !== "GET") return errorResponse("METHOD_NOT_ALLOWED", "Only GET is supported.", 405);
+    const authenticated = !!env.SCREENSHOT_ACCESS_TOKEN && await verifyOwnerSession(request, env.SCREENSHOT_ACCESS_TOKEN);
+    return json({ authenticated }, { headers: { "Cache-Control": "no-store" } });
+  }
+
+  if (url.pathname === "/api/owner/login") {
+    if (request.method !== "POST") return errorResponse("METHOD_NOT_ALLOWED", "Only POST is supported.", 405);
+    if (!hasValidRequestOrigin(request)) return errorResponse("INVALID_ORIGIN", "Cross-origin owner requests are not permitted.", 403);
+    if (!env.SCREENSHOT_ACCESS_TOKEN) return errorResponse("SCREENSHOT_DISABLED", "Owner access is not configured.", 503);
+    let payload: unknown;
+    try { payload = await request.json(); } catch { return errorResponse("INVALID_LOGIN", "Enter your owner access token.", 400); }
+    if (!payload || typeof payload !== "object" || typeof (payload as { token?: unknown }).token !== "string") {
+      return errorResponse("INVALID_LOGIN", "Enter your owner access token.", 400);
+    }
+    if (!(await tokensMatch((payload as { token: string }).token, env.SCREENSHOT_ACCESS_TOKEN))) {
+      return errorResponse("OWNER_UNAUTHORIZED", "Incorrect owner token.", 401);
+    }
+    const session = await createOwnerSession(env.SCREENSHOT_ACCESS_TOKEN);
+    return json({ authenticated: true }, {
+      headers: { "Cache-Control": "no-store", "Set-Cookie": ownerSessionCookie(session) },
+    });
+  }
+
+  if (url.pathname === "/api/owner/logout") {
+    if (request.method !== "POST") return errorResponse("METHOD_NOT_ALLOWED", "Only POST is supported.", 405);
+    if (!hasValidRequestOrigin(request)) return errorResponse("INVALID_ORIGIN", "Cross-origin owner requests are not permitted.", 403);
+    return json({ authenticated: false }, {
+      headers: { "Cache-Control": "no-store", "Set-Cookie": clearOwnerSessionCookie() },
+    });
+  }
+
   if (url.pathname === "/api/screenshot") {
     if (request.method !== "GET" && request.method !== "POST") {
       return errorResponse("METHOD_NOT_ALLOWED", "Only GET and POST are supported.", 405, { Allow: "GET, POST" });
@@ -92,8 +125,13 @@ export async function handleRequest(
         503,
       );
     }
-    if (!(await tokensMatch(request.headers.get("X-Screenshot-Token"), env.SCREENSHOT_ACCESS_TOKEN))) {
-      return errorResponse("SCREENSHOT_UNAUTHORIZED", "Screenshot access is restricted to the owner.", 401);
+    if (!hasValidRequestOrigin(request)) {
+      return errorResponse("INVALID_ORIGIN", "Cross-origin owner requests are not permitted.", 403);
+    }
+    const hasOwnerSession = await verifyOwnerSession(request, env.SCREENSHOT_ACCESS_TOKEN);
+    const hasLegacyOwnerToken = await tokensMatch(request.headers.get("X-Screenshot-Token"), env.SCREENSHOT_ACCESS_TOKEN);
+    if (!hasOwnerSession && !hasLegacyOwnerToken) {
+      return errorResponse("SCREENSHOT_UNAUTHORIZED", "Sign in as the owner to generate new screenshots.", 401);
     }
     if (!env.SCREENSHOTS) {
       return errorResponse("SCREENSHOT_CACHE_UNAVAILABLE", "Configure the SCREENSHOTS R2 binding before generating images.", 503);
