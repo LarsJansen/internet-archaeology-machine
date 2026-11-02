@@ -89,3 +89,24 @@ Expect an image response for a verified capture, `401` for a wrong token, `503 S
 - Each object stores the verified *CDX capture* timestamp, requested year, replay URL and rendering-version metadata. This does **not** assert the screenshot's rendered content is from that date; Wayback redirects/late assets remain possible.
 - An image generated **before Phase 3A** is not imported automatically. Regenerate it once if you want public reuse.
 - R2 operations and storage count towards the account's usage; owner-only generation, exact-key reads and no bulk crawling keep the workload bounded. The current approach uses R2 object metadata, not a separate D1 database.
+
+
+## Phase 4 — Self-service screenshots
+
+The repo now adds a SQLite-backed Durable Object named `ScreenshotBudget`, bound as `SCREENSHOT_BUDGET`. Wrangler automatically provisions it via the `exports` block on the first deployment; no separate R2 bucket or new secret is required. Durable Objects are supported on Workers Free plans, but on paid plans usage beyond included allowances can cost money. Review [Cloudflare Durable Objects pricing](https://developers.cloudflare.com/durable-objects/platform/pricing/) before enabling public traffic.
+
+The new production main entry point is `src/worker/entry.ts` so the handler and Durable Object RPC class are exported together. The existing `BROWSER`, `SCREENSHOTS` and encrypted `SCREENSHOT_ACCESS_TOKEN` bindings are all still needed.
+
+**Initial limits:** six public screenshot attempts site-wide per UTC day, two attempts per trusted Cloudflare visitor IP per UTC day, one active render, and a 15-second spacing between attempted renders. Attempts count even when Browser Run or the Wayback replay fails. A 90-second durable lease survives Worker process changes and prevents repeated captures. The owner may still generate missing screenshots, using the existing curator session, but those requests share the global active lease and cooldown.
+
+**Public smoke test** (after CI and deployment):
+1. Open an archived year with no screenshot while signed out. The action should offer **Show this snapshot**, not request a secret.
+2. Click it once. Confirm the returned PNG is saved under `screenshots/toolbarless-v1-1280x900/` in R2.
+3. Refresh and select the same year. It should load automatically from R2, with no new Browser Run request or quota usage.
+4. Select a different uncached year and try generating again. After two attempts from the same visitor in one UTC day, further missing captures should produce `429 VISITOR_BUDGET_EXHAUSTED`. A temporarily active screenshot should produce `429 SCREENSHOT_BUSY` with `Retry-After`.
+5. Check that wrong/mismatched timestamps produce `409 SCREENSHOT_CAPTURE_CHANGED` and **do not** generate an image. This verifies a current CDX match, but cannot detect Wayback navigation to another archive date inside the browser.
+6. Confirm owner authentication remains functional and public GET cached images work if `PUBLIC_SCREENSHOTS_ENABLED` is disabled.
+
+**Important limitations:** IP-based throttling is a cost guard, not bot-proof authentication. Proxies can share or change IPs. The daily cap is also not a strict browser-minutes cap — an individual request's duration may vary. Keep an eye on Browser Run usage and optionally add Cloudflare Turnstile, WAF rules or stricter limits before promoting the app heavily. Never accept a screenshot URL from visitors; only the CDX-verified replay is rendered.
+
+**Emergency stop:** set `PUBLIC_SCREENSHOTS_ENABLED` to `false` in Wrangler config and redeploy. Cached screenshots and curator actions remain available. Do not remove the Durable Object binding without considering the budget state and in-progress requests.
