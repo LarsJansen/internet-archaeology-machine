@@ -21,3 +21,13 @@ export interface ApiErrorResponse {
     message: string;
   };
 }
+
+// A bounded one-per-year sample from the CDX index, not a guarantee of
+// exhaustive archive coverage or proof a site was offline in other years.
+export interface YearsResponse {
+  domain: string;
+  years: number[];
+  source: "internet-archive-cdx";
+  truncated: boolean;
+  limitation: string;
+}
