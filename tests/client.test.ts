@@ -290,6 +290,85 @@ describe("on-demand year explorer", () => {
     expect(window.document.querySelector("#selected-capture")?.hasAttribute("hidden")).toBe(false);
   });
 
+  it("keeps screenshot-generation controls hidden for public visitors", async () => {
+    const window = createPage();
+    const requests: string[] = [];
+    initActualSearch(window.document as unknown as Document, async (input) => {
+      requests.push(String(input));
+      if (String(input).startsWith("/api/years?")) {
+        return Response.json({ domain: "example.com", source: "internet-archive-cdx",
+          years: [2002, 2003], truncated: false, limitation: "Indexed years only." });
+      }
+      const url = new URL(String(input), "https://iam.test");
+      if (url.pathname === "/api/screenshot") return Response.json({ error: { code: "SCREENSHOT_NOT_CACHED" } }, { status: 404 });
+      return Response.json(capturePayload(Number(url.searchParams.get("year"))));
+    });
+    (window.document.querySelector("#domain") as unknown as HTMLInputElement).value = "example.com";
+    await submit(window);
+    await clickYear(window, 2002);
+    expect(window.document.querySelector("#owner-tools")?.hasAttribute("hidden")).toBe(true);
+    expect(window.document.querySelector('[data-screenshot-year="2002"]')).toBeNull();
+    expect(requests.some((url) => url === "/api/screenshot")).toBe(false);
+  });
+
+  it("signs in a curator once, enables generation, and hides controls again on logout", async () => {
+    const window = createPage();
+    const access = window.document.createElement("div");
+    access.innerHTML = `<form id="owner-login-form"><input id="owner-login-token" type="password" /></form>
+    <div id="owner-signed-in" hidden></div><button id="owner-logout-button"></button><p id="owner-auth-status"></p>`;
+    window.document.body.append(access);
+    const calls: string[] = [];
+    initActualSearch(window.document as unknown as Document, async (input, init) => {
+      calls.push(String(input));
+      if (String(input) === "/api/owner/session") return Response.json({ authenticated: false });
+      if (String(input) === "/api/owner/login") return Response.json({ authenticated: true });
+      if (String(input) === "/api/owner/logout") return Response.json({ authenticated: false });
+      if (String(input).startsWith("/api/years?")) {
+        return Response.json({ domain: "example.com", source: "internet-archive-cdx",
+          years: [2002], truncated: false, limitation: "Indexed years only." });
+      }
+      const url = new URL(String(input), "https://iam.test");
+      if (url.pathname === "/api/screenshot") return Response.json({ error: { code: "SCREENSHOT_NOT_CACHED" } }, { status: 404 });
+      return Response.json(capturePayload(2002));
+    });
+    (window.document.querySelector("#domain") as unknown as HTMLInputElement).value = "example.com";
+    await submit(window);
+    await clickYear(window, 2002);
+    expect(window.document.querySelector('[data-screenshot-year="2002"]')).toBeNull();
+    const input = window.document.querySelector("#owner-login-token") as unknown as HTMLInputElement;
+    input.value = "test-owner-token";
+    window.document.querySelector("#owner-login-form")?.dispatchEvent(new window.Event("submit", { bubbles: true, cancelable: true }));
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    expect(calls).toContain("/api/owner/login");
+    expect(input.value).toBe("");
+    expect(window.document.querySelector("#owner-tools")?.hasAttribute("hidden")).toBe(false);
+    expect(window.document.querySelector('[data-screenshot-year="2002"]')).not.toBeNull();
+    (window.document.querySelector("#owner-logout-button") as unknown as HTMLButtonElement).click();
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    expect(calls).toContain("/api/owner/logout");
+    expect(window.document.querySelector('[data-screenshot-year="2002"]')).toBeNull();
+    expect(window.document.querySelector("#owner-tools")?.hasAttribute("hidden")).toBe(true);
+  });
+
+  it("shows PNG sharing only after two real captures are selected", async () => {
+    const window = createPage();
+    initSearch(window.document as unknown as Document, async (input) => {
+      if (String(input).startsWith("/api/screenshot?")) {
+        return Response.json({ error: { code: "SCREENSHOT_NOT_CACHED" } }, { status: 404 });
+      }
+      const year = Number(new URL(String(input), "https://iam.test").searchParams.get("year"));
+      return Response.json(capturePayload(year));
+    });
+    (window.document.querySelector("#domain") as unknown as HTMLInputElement).value = "example.com";
+    await submit(window);
+    expect(window.document.querySelector("#share-card-actions")?.hasAttribute("hidden")).toBe(true);
+    await clickYear(window, 2002);
+    expect(window.document.querySelector("#share-card-actions")?.hasAttribute("hidden")).toBe(true);
+    await clickYear(window, 2003);
+    expect(window.document.querySelector("#share-card-actions")?.hasAttribute("hidden")).toBe(false);
+    expect((window.document.querySelector("#download-discovery") as unknown as HTMLButtonElement).disabled).toBe(true);
+  });
+
   it("uses the signed owner session instead of resending the private token for each screenshot", async () => {
     const window = createPage();
     let screenshotRequest: Request | undefined;
