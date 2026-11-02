@@ -73,7 +73,7 @@ function createCaptureItem(
   screenshotButton.type = "button";
   screenshotButton.className = "btn btn-primary btn-sm screenshot-capture";
   screenshotButton.dataset.screenshotYear = String(year);
-  screenshotButton.textContent = "Save missing screenshot";
+  screenshotButton.textContent = isCurator ? "Save missing screenshot" : "Show this snapshot";
   screenshotButton.disabled = screenshotReady;
   screenshotButton.addEventListener("click", onScreenshot);
   replaceButton.type = "button";
@@ -85,7 +85,7 @@ function createCaptureItem(
 
   const actions = document.createElement("div");
   actions.className = "capture-actions";
-  if (isCurator && !screenshotReady) actions.append(screenshotButton);
+  if (!screenshotReady) actions.append(screenshotButton);
   actions.append(replaceButton);
   item.append(yearHeading, link, metadata, actions);
   return item;
@@ -365,10 +365,8 @@ export function initSearch(document: Document, fetchImpl: typeof fetch = fetch):
 
   const takeScreenshot = async (year: number, domain: string) => {
     if (requestPending || screenshotPending || screenshotObjectUrls.has(year)) return;
-    if (!isCurator) {
-      status.textContent = "Only the curator can save a new screenshot.";
-      return;
-    }
+    const selected = comparedCaptures.find((capture) => capture.year === year);
+    if (!selected) return;
 
     screenshotPending = true;
     const requestedGeneration = searchGeneration;
@@ -382,13 +380,13 @@ export function initSearch(document: Document, fetchImpl: typeof fetch = fetch):
     status.textContent = `Capturing the ${year} Wayback replay…`;
 
     try {
-      const response = await fetchImpl("/api/screenshot", {
+      const response = await fetchImpl(isCurator ? "/api/screenshot" : "/api/screenshot/request", {
         method: "POST",
         headers: {
           Accept: "image/png, application/json",
           "Content-Type": "application/json",
         },
-        body: JSON.stringify({ domain, year }),
+        body: JSON.stringify({ domain, year, ...(isCurator ? {} : { timestamp: selected.capture.timestamp }) }),
         credentials: "same-origin",
       });
       if (!response.ok) {
@@ -409,7 +407,7 @@ export function initSearch(document: Document, fetchImpl: typeof fetch = fetch):
       renderComparison(domain);
       status.textContent = response.headers.get("X-IAM-Screenshot-Source") === "cached"
         ? `Loaded a saved screenshot for ${domain} in ${year}.`
-        : `Screenshot saved for everyone to view: ${domain} in ${year}.`;
+        : `New snapshot saved for everyone: ${domain} in ${year}.`;
     } catch {
       status.textContent = "The screenshot service could not be reached. Try again later.";
     } finally {

@@ -75,3 +75,12 @@ The Phase 0 deployment and authentic CDX access were verified before the on-dema
 A single Cloudflare R2 Standard bucket, `internet-archaeology-machine-screenshots`, stores the PNG and attached provenance metadata. No D1 database is needed until browsing/searching the stored catalogue is required. Object keys include the capture timestamp and rendering version, not just the requested year. Previously generated **in-browser** screenshots are not retroactively present in R2 and must be generated once after storage is configured.
 
 See [deployment preparation](docs/DEPLOYMENT.md) for the one-time owner R2 setup. The Worker fails closed rather than running Browser Run when its storage binding is missing. Public cache misses return 404 and do not consume archive or screenshot quota.
+
+
+## Phase 4 — Public screenshots (bounded)
+
+Visitors may request missing images via `POST /api/screenshot/request`, supplying only the validated domain, year and exact 14-digit CDX capture timestamp from the UI. There is no account requirement. Public cached image reads still use `GET /api/screenshot` without touching the coordinator or Browser Run. A public generation request first checks R2, then obtains a lease from a **SQLite-backed Durable Object**. Only one new render can run at once, with a 15-second cooldown. Successful images are saved to R2. The stored PNG remains associated with the CDX timestamp; Wayback may redirect or load later assets, and the screenshot is **not** a guarantee of the rendered date.
+
+The initial hard limits are 6 public attempts per UTC day across the whole site, and 2 per visitor per UTC day. Per-visitor state is keyed to an HMAC fingerprint of Cloudflare's trusted client IP, not a browser-controlled token. The Durable Object serialises admissions and persists counters and leases across restarts. Failed renders also count toward limits. The global coordinator does *not* receive cache hits or ordinary archive browsing; when budget infrastructure is missing, new generation fails closed. Owner generation shares the global lock but bypasses public daily limits.
+
+The binding `SCREENSHOT_BUDGET` and SQLite class `ScreenshotBudget` are declared using Wrangler's `exports` lifecycle configuration. `PUBLIC_SCREENSHOTS_ENABLED` is explicitly set to `true` in `wrangler.jsonc`; change to `false` to pause new public captures without interrupting cached screenshot reads. See [deployment](docs/DEPLOYMENT.md) for rollout and limitations.
