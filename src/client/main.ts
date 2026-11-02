@@ -1,5 +1,6 @@
 import type { ApiErrorResponse, Capture, CapturesResponse, YearsResponse } from "../shared/capture-types";
 import "./styles.css";
+import { discoverySources, renderDiscoveryCard } from "./discovery-card";
 
 const MONTHS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
 
@@ -53,6 +54,7 @@ function createCaptureItem(
   onReplace: () => void,
   onScreenshot: () => void,
   screenshotReady: boolean,
+  isCurator: boolean,
 ): HTMLLIElement {
   const item = document.createElement("li");
   const yearHeading = document.createElement("h4");
@@ -71,7 +73,7 @@ function createCaptureItem(
   screenshotButton.type = "button";
   screenshotButton.className = "btn btn-primary btn-sm screenshot-capture";
   screenshotButton.dataset.screenshotYear = String(year);
-  screenshotButton.textContent = screenshotReady ? "Screenshot available" : "Generate missing screenshot";
+  screenshotButton.textContent = "Save missing screenshot";
   screenshotButton.disabled = screenshotReady;
   screenshotButton.addEventListener("click", onScreenshot);
   replaceButton.type = "button";
@@ -83,7 +85,8 @@ function createCaptureItem(
 
   const actions = document.createElement("div");
   actions.className = "capture-actions";
-  actions.append(screenshotButton, replaceButton);
+  if (isCurator && !screenshotReady) actions.append(screenshotButton);
+  actions.append(replaceButton);
   item.append(yearHeading, link, metadata, actions);
   return item;
 }
@@ -108,7 +111,15 @@ export function initSearch(document: Document, fetchImpl: typeof fetch = fetch):
   const selectedCapture = document.querySelector<HTMLElement>("#selected-capture");
   const captureHeading = document.querySelector<HTMLElement>("#capture-heading");
   const captureList = document.querySelector<HTMLUListElement>("#capture-list");
-  const screenshotToken = document.querySelector<HTMLInputElement>("#screenshot-token");
+  const ownerTools = document.querySelector<HTMLElement>("#owner-tools");
+  const ownerLoginForm = document.querySelector<HTMLFormElement>("#owner-login-form");
+  const ownerLoginToken = document.querySelector<HTMLInputElement>("#owner-login-token");
+  const ownerSignedIn = document.querySelector<HTMLElement>("#owner-signed-in");
+  const ownerLogoutButton = document.querySelector<HTMLButtonElement>("#owner-logout-button");
+  const ownerAuthStatus = document.querySelector<HTMLElement>("#owner-auth-status");
+  const shareActions = document.querySelector<HTMLElement>("#share-card-actions");
+  const downloadDiscovery = document.querySelector<HTMLButtonElement>("#download-discovery");
+  const copyDiscoverySources = document.querySelector<HTMLButtonElement>("#copy-discovery-sources");
   const screenshotResult = document.querySelector<HTMLElement>("#screenshot-result");
   const screenshotCaption = document.querySelector<HTMLElement>("#screenshot-caption");
   const screenshotImage = document.querySelector<HTMLImageElement>("#screenshot-image");
@@ -124,7 +135,6 @@ export function initSearch(document: Document, fetchImpl: typeof fetch = fetch):
     !selectedCapture ||
     !captureHeading ||
     !captureList ||
-    !screenshotToken ||
     !screenshotResult ||
     !screenshotCaption ||
     !screenshotImage
@@ -135,6 +145,7 @@ export function initSearch(document: Document, fetchImpl: typeof fetch = fetch):
   let requestPending = false;
   let timelinePending = false;
   let screenshotPending = false;
+  let isCurator = false;
   const screenshotObjectUrls = new Map<number, string>();
   const attemptedCacheLookups = new Set<number>();
   let activeDomain = "";
@@ -145,6 +156,63 @@ export function initSearch(document: Document, fetchImpl: typeof fetch = fetch):
   const secondImage = document.querySelector<HTMLImageElement>("#screenshot-image-second");
   const secondCaption = document.querySelector<HTMLElement>("#screenshot-caption-second");
   const secondResult = document.querySelector<HTMLElement>("#screenshot-result-second");
+
+  const updateCuratorUI = () => {
+    if (ownerTools) ownerTools.hidden = !isCurator;
+    if (ownerLoginForm) ownerLoginForm.hidden = isCurator;
+    if (ownerSignedIn) ownerSignedIn.hidden = !isCurator;
+    if (activeDomain) renderComparison(activeDomain);
+  };
+
+  const refreshCuratorSession = async () => {
+    if (!ownerLoginForm) return;
+    try {
+      const response = await fetchImpl("/api/owner/session", { headers: { Accept: "application/json" }, credentials: "same-origin" });
+      if (!response.ok) return;
+      const result = (await response.json()) as { authenticated?: boolean };
+      isCurator = result.authenticated === true;
+      updateCuratorUI();
+    } catch {
+      // Public browsing works even if the curator session check fails.
+    }
+  };
+
+  if (ownerLoginForm && ownerLoginToken) {
+    ownerLoginForm.addEventListener("submit", (event) => {
+      event.preventDefault();
+      const token = ownerLoginToken.value;
+      ownerLoginToken.value = "";
+      if (!token) { if (ownerAuthStatus) ownerAuthStatus.textContent = "Enter the curator token."; return; }
+      void (async () => {
+        try {
+          const response = await fetchImpl("/api/owner/login", {
+            method: "POST", credentials: "same-origin",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ token }),
+          });
+          if (!response.ok) {
+            const error: unknown = await response.json();
+            if (ownerAuthStatus) ownerAuthStatus.textContent = errorMessage(error);
+            return;
+          }
+          isCurator = true;
+          if (ownerAuthStatus) ownerAuthStatus.textContent = "Signed in. Your session lasts seven days.";
+          updateCuratorUI();
+        } catch {
+          if (ownerAuthStatus) ownerAuthStatus.textContent = "Could not sign in. Try again.";
+        }
+      })();
+    });
+  }
+  ownerLogoutButton?.addEventListener("click", () => {
+    void (async () => {
+      try { await fetchImpl("/api/owner/logout", { method: "POST", credentials: "same-origin" }); } catch { /* Session expires automatically. */ }
+      isCurator = false;
+      if (ownerAuthStatus) ownerAuthStatus.textContent = "Signed out.";
+      updateCuratorUI();
+    })();
+  });
+  void refreshCuratorSession();
 
   const clearScreenshot = () => {
     for (const url of screenshotObjectUrls.values()) URL.revokeObjectURL(url);
@@ -210,6 +278,58 @@ export function initSearch(document: Document, fetchImpl: typeof fetch = fetch):
     });
   };
 
+  const exportEntries = () => {
+    if (comparedCaptures.length !== 2 || !secondImage) return null;
+    const images = [screenshotImage, secondImage];
+    if (!comparedCaptures.every(({ year }, i) => screenshotObjectUrls.has(year) && images[i].complete && images[i].naturalWidth > 0)) return null;
+    return comparedCaptures.map((compared, i) => ({ ...compared, image: images[i] }));
+  };
+
+  downloadDiscovery?.addEventListener("click", () => {
+    const entries = exportEntries();
+    if (!entries) { status.textContent = "Both saved screenshots need to load before you can download a comparison."; return; }
+    try {
+      const canvas = document.createElement("canvas");
+      renderDiscoveryCard(canvas, activeDomain, entries);
+      if (!canvas.toBlob) throw new Error("PNG export is not supported by this browser.");
+      downloadDiscovery.disabled = true;
+      canvas.toBlob((blob) => {
+        downloadDiscovery.disabled = false;
+        if (!blob) { status.textContent = "This browser could not create the comparison PNG."; return; }
+        const url = URL.createObjectURL(blob);
+        const link = document.createElement("a");
+        link.href = url;
+        link.download = `internet-archaeology-${activeDomain}-${entries[0].year}-vs-${entries[1].year}.png`;
+        document.body.append(link);
+        link.click();
+        link.remove();
+        setTimeout(() => URL.revokeObjectURL(url), 1000);
+        status.textContent = "Comparison downloaded. Copy the archive sources when you share it.";
+      }, "image/png");
+    } catch (error) {
+      downloadDiscovery.disabled = false;
+      status.textContent = error instanceof Error ? error.message : "Could not create the comparison card.";
+    }
+  });
+
+  copyDiscoverySources?.addEventListener("click", () => {
+    if (comparedCaptures.length !== 2) return;
+    const entries = comparedCaptures.map((capture) => ({
+      ...capture,
+      image: screenshotImage,
+    }));
+    const sources = discoverySources(activeDomain, entries);
+    const clipboard = document.defaultView?.navigator.clipboard;
+    if (clipboard?.writeText) {
+      void clipboard.writeText(sources).then(
+        () => { status.textContent = "Both archive source links copied. Paste them alongside the image."; },
+        () => { status.textContent = "Your browser blocked copying. You can open the archive links above."; },
+      );
+    } else {
+      status.textContent = "Your browser does not support clipboard copying here. Use the archive links above.";
+    }
+  });
+
   // Public cache reads are safe: no owner secret and no Browser Run request.
   // The archive capture timestamp prevents different replays in the same year colliding.
   const loadCachedScreenshot = async (year: number, capture: Capture, domain: string) => {
@@ -234,16 +354,13 @@ export function initSearch(document: Document, fetchImpl: typeof fetch = fetch):
 
   const takeScreenshot = async (year: number, domain: string) => {
     if (requestPending || screenshotPending || screenshotObjectUrls.has(year)) return;
-    const token = screenshotToken.value;
-    if (!token) {
-      status.textContent = "Enter the owner screenshot token before requesting an image.";
-      screenshotToken.focus();
+    if (!isCurator) {
+      status.textContent = "Only the curator can save a new screenshot.";
       return;
     }
 
     screenshotPending = true;
     const requestedGeneration = searchGeneration;
-    screenshotToken.value = "";
     const interactiveButtons = Array.from(
       document.querySelectorAll<HTMLButtonElement>(
         "#year-list button, #capture-list .replace-capture, #capture-list .screenshot-capture",
@@ -251,7 +368,6 @@ export function initSearch(document: Document, fetchImpl: typeof fetch = fetch):
     );
     interactiveButtons.forEach((button) => (button.disabled = true));
     formButton.disabled = true;
-    screenshotToken.disabled = true;
     status.textContent = `Capturing the ${year} Wayback replay…`;
 
     try {
@@ -260,9 +376,9 @@ export function initSearch(document: Document, fetchImpl: typeof fetch = fetch):
         headers: {
           Accept: "image/png, application/json",
           "Content-Type": "application/json",
-          "X-Screenshot-Token": token,
         },
         body: JSON.stringify({ domain, year }),
+        credentials: "same-origin",
       });
       if (!response.ok) {
         const payload: unknown = await response.json();
@@ -289,7 +405,6 @@ export function initSearch(document: Document, fetchImpl: typeof fetch = fetch):
       screenshotPending = false;
       interactiveButtons.forEach((button) => (button.disabled = false));
       formButton.disabled = false;
-      screenshotToken.disabled = false;
     }
   };
 
@@ -309,12 +424,15 @@ export function initSearch(document: Document, fetchImpl: typeof fetch = fetch):
           },
           () => void takeScreenshot(compared.year, domain),
           screenshotObjectUrls.has(compared.year),
+          isCurator,
         ),
       );
     }
     captureHeading.textContent = `Verified captures for ${domain}`;
     selectedCapture.hidden = comparedCaptures.length === 0;
     renderScreenshots(domain);
+    if (shareActions) shareActions.hidden = comparedCaptures.length !== 2;
+    if (downloadDiscovery) downloadDiscovery.disabled = exportEntries() === null;
   };
 
   const addToComparison = (year: number, capture: Capture, domain: string) => {
