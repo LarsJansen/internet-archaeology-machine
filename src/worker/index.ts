@@ -4,6 +4,7 @@ import { normalizeDomain } from "./domain-validation";
 import { screenshotImage, screenshotKey, screenshotMetadata } from "./screenshot-store";
 import { createOwnerSession, verifyOwnerSession, ownerSessionCookie, clearOwnerSessionCookie, hasValidRequestOrigin } from "./owner-session";
 import type { ScreenshotBudget } from "./screenshot-budget";
+import { findSurprise } from "./surprise";
 
 const ARCHIVE_LIMITATION =
   "Results are a small sample of surviving indexed homepage captures. Gaps do not prove the site was offline.";
@@ -135,6 +136,29 @@ export async function handleRequest(
     return json({ authenticated: false }, {
       headers: { "Cache-Control": "no-store", "Set-Cookie": clearOwnerSessionCookie() },
     });
+  }
+
+  if (url.pathname === "/api/surprise") {
+    if (request.method !== "GET") {
+      return errorResponse("METHOD_NOT_ALLOWED", "Only GET is supported.", 405, { Allow: "GET" });
+    }
+    if (!env.SCREENSHOTS) {
+      return errorResponse("SURPRISE_UNAVAILABLE", "The discovery collection is temporarily unavailable.", 503);
+    }
+    const excluded = normalizeDomain(url.searchParams.get("exclude") ?? "");
+    try {
+      const discovery = await findSurprise(env.SCREENSHOTS, excluded.ok ? excluded.domain : "");
+      if (!discovery) {
+        return errorResponse(
+          "SURPRISE_EMPTY",
+          "There aren't any saved snapshots to discover yet. Explore a website to start the collection.",
+          404,
+        );
+      }
+      return json(discovery, { headers: { "Cache-Control": "no-store" } });
+    } catch {
+      return errorResponse("SURPRISE_UNAVAILABLE", "The discovery collection is temporarily unavailable.", 503);
+    }
   }
 
   if (url.pathname === "/api/screenshot/request") {
