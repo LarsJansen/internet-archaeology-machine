@@ -61,7 +61,7 @@ Normalize homepage variants, merge/de-duplicate capture metadata, group authenti
 
 ## Phase 5 — Surprise Me (cached discovery)
 
-- Offer a browse-first random discovery backed exclusively by real screenshots previously saved in R2.
+- Offer a browse-first random discovery backed exclusively by real screenshots previously saved in R2, from a reviewed shortlist of classic sites.
 - Prefer two distinct archived years for a site, gracefully handle a single available year and an empty collection.
 - Include exact archive timestamps, source links and a one-click route into the site's indexed-year explorer.
 - Bound the R2 inventory scan to three metadata-enabled pages; use a dedicated discovery catalogue later if the collection grows significantly.
