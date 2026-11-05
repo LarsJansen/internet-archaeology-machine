@@ -61,6 +61,8 @@ function createPage() {
           </article>
         </section>
         <div id="share-card-actions" hidden>
+          <button id="copy-discovery-link" disabled>Copy comparison link</button>
+          <a id="open-discovery-link" hidden>Open page</a>
           <button id="download-discovery" disabled>Download PNG</button>
           <button id="copy-discovery-sources">Copy sources</button>
         </div>
@@ -401,6 +403,30 @@ describe("on-demand year explorer", () => {
     expect(window.document.querySelector("#status")?.textContent).toContain("allowance is full");
     expect(window.document.querySelector("#capture-list")?.children).toHaveLength(1);
     expect(window.document.querySelector('[data-screenshot-year="2002"]')).not.toBeNull();
+  });
+
+  it("enables a canonical comparison link only when both exact screenshots are saved", async () => {
+    const window = createPage();
+    initSearch(window.document as unknown as Document, async (input) => {
+      if (String(input).startsWith("/api/screenshot?")) {
+        return new Response(new Uint8Array([137, 80, 78, 71]), { headers: { "Content-Type": "image/png" } });
+      }
+      const year = Number(new URL(String(input), "https://iam.test").searchParams.get("year"));
+      return Response.json(capturePayload(year));
+    });
+    (window.document.querySelector("#domain") as unknown as HTMLInputElement).value = "example.com";
+    await submit(window);
+    await clickYear(window, 2003);
+    expect((window.document.querySelector("#copy-discovery-link") as unknown as HTMLButtonElement).disabled).toBe(true);
+    await clickYear(window, 2002);
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    const share = window.document.querySelector("#open-discovery-link") as unknown as HTMLAnchorElement;
+    expect((window.document.querySelector("#copy-discovery-link") as unknown as HTMLButtonElement).disabled).toBe(false);
+    expect(share.getAttribute("href")).toBe("/discover/example.com/20020120142510/20030120142510");
+    expect(share.hasAttribute("hidden")).toBe(false);
+    expect(window.document.querySelector("#share-card-actions")?.hasAttribute("hidden")).toBe(false);
+    await replaceYear(window, 2003);
+    expect((window.document.querySelector("#copy-discovery-link") as unknown as HTMLButtonElement).disabled).toBe(true);
   });
 
   it("shows PNG sharing only after two real captures are selected", async () => {
