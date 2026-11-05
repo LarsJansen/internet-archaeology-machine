@@ -101,3 +101,13 @@ body { background: #f4f7fb; color: var(--iam-ink); }
   #surprise-trigger { width: 100%; }
   .surprise-result .card-body { padding: 1rem; }
 }
+
+/* Saved-discovery permalinks. The same actual cached R2 images are reused. */
+.shared-discovery { border-color: #bed3f1; box-shadow: 0 10px 36px rgba(27,77,154,.085); }
+.shared-discovery .card-header { background: linear-gradient(110deg, #f3f8ff, #fff); }
+.shared-discovery-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 300px), 1fr)); gap: 1rem; }
+.shared-snapshot { display: flex; flex-direction: column; min-width: 0; padding: 1rem; overflow: hidden; }
+.shared-snapshot h3 { color: var(--iam-blue); font-weight: 850; font-size: 1.5rem; }
+.shared-snapshot-image { width: 100%; height: auto; aspect-ratio: 1280 / 900; object-fit: contain; background: #f2f5f9; border: 1px solid var(--iam-line); border-radius: 6px; margin-bottom: .9rem; }
+.shared-snapshot a { margin-top: auto; font-weight: 650; }
+@media (max-width: 650px) { .shared-discovery .card-body { padding: 1rem; } }
