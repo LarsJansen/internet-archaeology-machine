@@ -149,6 +149,7 @@ export function initSurprise(document: Document, fetchImpl: typeof fetch = fetch
       }
       if (!validSurprise(payload)) throw new Error("The saved discovery could not be displayed.");
       showDiscovery(payload);
+      panel.scrollIntoView?.({ block: "nearest" });
     } catch (error) {
       title.textContent = "Not this time";
       status.textContent = error instanceof Error ? error.message : "We couldn't load a discovery. Try again.";
