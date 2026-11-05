@@ -59,6 +59,14 @@ The production deployment and authentic CDX access were verified by the project 
 
 Normalize homepage variants, merge/de-duplicate capture metadata, group authentic captures by year, add filters and shareable investigation URLs, and cover all UI states with representative tests.
 
+## Phase 5 — Surprise Me (cached discovery)
+
+- Offer a browse-first random discovery backed exclusively by real screenshots previously saved in R2.
+- Prefer two distinct archived years for a site, gracefully handle a single available year and an empty collection.
+- Include exact archive timestamps, source links and a one-click route into the site's indexed-year explorer.
+- Bound the R2 inventory scan to three metadata-enabled pages; use a dedicated discovery catalogue later if the collection grows significantly.
+- Never generate images or contact CDX just because someone clicks Surprise Me.
+
 ## Later phases — not implemented
 
 Curated examples, discovery collections, richer shareable investigation URLs and source-code archaeology remain separate, reviewable projects.
@@ -71,3 +79,4 @@ Curated examples, discovery collections, richer shareable investigation URLs and
 - Public attempts are capped at six/day site-wide and two/day per visitor, with owner generation continuing to function.
 - Preserve a clear disclaimer that replay content may differ from the requested archive date.
 - No automatic crawling or mass screenshot generation.
+
