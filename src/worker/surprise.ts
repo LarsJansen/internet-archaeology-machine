@@ -7,6 +7,23 @@ const IMAGE_PREFIX = `screenshots/${SCREENSHOT_VARIANT}/`;
 export const SURPRISE_PAGE_SIZE = 200;
 export const SURPRISE_MAX_PAGES = 3;
 
+// An intentionally small editorial shortlist, not a claim that these sites
+// have archived captures. A site appears only when its image is already in R2.
+// Add new domains after reviewing their public archive content.
+export const FEATURED_DOMAINS = new Set([
+  "yahoo.com", "google.com", "mozilla.org", "apple.com", "microsoft.com",
+  "netscape.com", "aol.com", "altavista.com", "amazon.com", "ebay.com",
+  "msn.com", "hotmail.com", "ask.com", "reddit.com", "twitter.com",
+  "youtube.com", "facebook.com", "myspace.com", "wikipedia.org",
+  "archive.org", "cnn.com", "bbc.co.uk", "slashdot.org", "digg.com",
+  "php.net", "wordpress.org", "geocities.com", "newgrounds.com",
+]);
+
+export function isFeaturedDomain(domain: string): boolean {
+  return FEATURED_DOMAINS.has(domain) ||
+    (domain.startsWith("www.") && FEATURED_DOMAINS.has(domain.slice(4)));
+}
+
 export interface SavedDiscovery {
   year: number;
   timestamp: string;
@@ -80,6 +97,7 @@ export async function findSurprise(
   storage: Pick<R2Bucket, "list">,
   excludeDomain = "",
   rng: () => number = Math.random,
+  isAllowed: (domain: string) => boolean = isFeaturedDomain,
 ): Promise<SurpriseDiscovery | null> {
   const grouped = new Map<string, Map<number, StoredCapture>>();
   let cursor: string | undefined;
@@ -94,7 +112,7 @@ export async function findSurprise(
     });
     for (const object of list.objects) {
       const capture = storedCapture(object);
-      if (!capture) continue;
+      if (!capture || !isAllowed(capture.domain)) continue;
       let years = grouped.get(capture.domain);
       if (!years) {
         years = new Map<number, StoredCapture>();
@@ -133,6 +151,6 @@ export async function findSurprise(
     captures: selected.map(toPublicCapture),
     inventoryPartial: partial,
     source: "r2-cached-screenshots",
-    limitation: "These are saved images of Wayback replays. Archived pages can redirect or load later resources; the capture timestamps describe the archive records, not independently verified render dates.",
+    limitation: "This discovery is selected from approved sites with saved Wayback screenshots. Archived pages can redirect or load later resources; capture timestamps describe the archive records, not independently verified render dates.",
   };
 }
