@@ -43,6 +43,25 @@
               </div>
             </section>
 
+            <section id="shared-discovery" class="card shared-discovery mb-4" aria-labelledby="shared-discovery-title" hidden>
+              <div class="card-header d-flex flex-wrap justify-content-between align-items-center gap-2">
+                <div>
+                  <div class="section-kicker">A SAVED DISCOVERY FROM THE OLD WEB</div>
+                  <h2 id="shared-discovery-title" class="h2 mt-1 mb-0">Rediscover an archived website</h2>
+                </div>
+                <span class="badge bg-blue-lt text-blue">Saved archive captures</span>
+              </div>
+              <div class="card-body">
+                <p id="shared-discovery-status" class="text-secondary mb-3" role="status" aria-live="polite"></p>
+                <div id="shared-discovery-gallery" class="shared-discovery-grid"></div>
+                <p id="shared-discovery-notice" class="text-secondary small mt-3 mb-0"></p>
+                <div class="d-flex flex-wrap gap-2 mt-3">
+                  <button id="shared-discovery-copy" class="btn btn-primary" type="button" hidden>Copy this discovery link</button>
+                  <button id="shared-discovery-explore" class="btn btn-outline-secondary" type="button" hidden>Explore this website's history</button>
+                </div>
+              </div>
+            </section>
+
             <section class="card search-card" aria-labelledby="search-heading">
               <div class="card-body p-4">
                 <div class="d-flex flex-wrap align-items-center justify-content-between gap-2 mb-3">
@@ -75,6 +94,8 @@
                 <p id="surprise-caveat" class="text-secondary small mt-3 mb-0"></p>
                 <div class="d-flex flex-wrap gap-2 mt-3">
                   <button id="surprise-explore" class="btn btn-primary" type="button" hidden>Explore this website's history</button>
+                  <button id="surprise-copy-link" class="btn btn-outline-primary" type="button" hidden>Copy discovery link</button>
+                  <a id="surprise-open-link" class="btn btn-outline-secondary" href="/" target="_blank" rel="noopener noreferrer" hidden>Open shareable page</a>
                   <button id="surprise-again" class="btn btn-outline-secondary" type="button">Find another</button>
                 </div>
               </div>
@@ -135,10 +156,12 @@
                     <div class="card-body d-flex flex-wrap align-items-center justify-content-between gap-3">
                       <div>
                         <h4 class="h4 mb-1">Found something worth sharing?</h4>
-                        <p class="text-secondary mb-0">Download a side-by-side discovery card and keep the original archive sources attached to your post.</p>
+                        <p class="text-secondary mb-0">Share a link to these exact saved screenshots, or download a side-by-side image with the original archive sources.</p>
                       </div>
                       <div class="d-flex flex-wrap gap-2">
-                        <button id="download-discovery" class="btn btn-primary" type="button" disabled>Download comparison PNG</button>
+                        <button id="copy-discovery-link" class="btn btn-primary" type="button" disabled>Copy comparison link</button>
+                        <a id="open-discovery-link" class="btn btn-outline-secondary" href="/" target="_blank" rel="noopener noreferrer" hidden>Open shareable page</a>
+                        <button id="download-discovery" class="btn btn-outline-secondary" type="button" disabled>Download comparison PNG</button>
                         <button id="copy-discovery-sources" class="btn btn-outline-secondary" type="button">Copy archive sources</button>
                       </div>
                     </div>
