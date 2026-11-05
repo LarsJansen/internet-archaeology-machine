@@ -1,6 +1,7 @@
 import type { ApiErrorResponse, Capture, CapturesResponse, YearsResponse } from "../shared/capture-types";
 import "./styles.css";
 import { discoverySources, renderDiscoveryCard } from "./discovery-card";
+import { initSurprise } from "./surprise";
 
 const MONTHS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
 
@@ -604,4 +605,5 @@ export function initSearch(document: Document, fetchImpl: typeof fetch = fetch):
 
 if (typeof document !== "undefined") {
   initSearch(document);
+  initSurprise(document);
 }
