@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { findSurprise, SURPRISE_MAX_PAGES, SURPRISE_PAGE_SIZE } from "../src/worker/surprise";
+import { findSurprise, SURPRISE_MAX_PAGES, SURPRISE_PAGE_SIZE, isFeaturedDomain } from "../src/worker/surprise";
 import { screenshotKey, SCREENSHOT_VARIANT } from "../src/worker/screenshot-store";
 import { handleRequest } from "../src/worker/index";
 
@@ -68,9 +68,22 @@ describe("Surprise Me R2-only selection", () => {
     });
   });
 
+  it("only features approved domains even when other sites have cached screenshots", async () => {
+    expect(isFeaturedDomain("yahoo.com")).toBe(true);
+    expect(isFeaturedDomain("www.mozilla.org")).toBe(true);
+    expect(isFeaturedDomain("unreviewed.example")).toBe(false);
+    const store = bucket([page([
+      cachedObject("unreviewed.example", 2001),
+      cachedObject("yahoo.com", 2002),
+    ])]);
+    const result = await findSurprise(store.binding, "", () => 0);
+    expect(result?.domain).toBe("yahoo.com");
+    expect(result?.captures).toHaveLength(1);
+  });
+
   it("handles one cached screenshot without fabricating a second year", async () => {
     const store = bucket([page([cachedObject("oldweb.net", 2006)])]);
-    const result = await findSurprise(store.binding, "", () => 0);
+    const result = await findSurprise(store.binding, "", () => 0, () => true);
     expect(result?.domain).toBe("oldweb.net");
     expect(result?.captures).toHaveLength(1);
     expect(result?.captures[0].year).toBe(2006);
@@ -81,7 +94,7 @@ describe("Surprise Me R2-only selection", () => {
       cachedObject("alpha.com", 2000), cachedObject("alpha.com", 2001),
       cachedObject("beta.com", 2004), cachedObject("beta.com", 2005),
     ])]);
-    const result = await findSurprise(store.binding, "alpha.com", () => 0);
+    const result = await findSurprise(store.binding, "alpha.com", () => 0, () => true);
     expect(result?.domain).toBe("beta.com");
     expect(result?.captures).toHaveLength(2);
   });
@@ -91,7 +104,7 @@ describe("Surprise Me R2-only selection", () => {
     const wrongDate = cachedObject("bad.com", 2003, { captureTimestamp: timestamp(2004) });
     const rogueObject = { ...cachedObject("good.com", 2005), key: "screenshots/old-render/good.com/20050102123000.png" } as R2Object;
     const store = bucket([page([externalReplay, wrongDate, rogueObject])]);
-    expect(await findSurprise(store.binding)).toBeNull();
+    expect(await findSurprise(store.binding, "", () => 0, () => true)).toBeNull();
   });
 
   it("bounds listing to three pages and explains when the inventory is partial", async () => {
@@ -101,7 +114,7 @@ describe("Surprise Me R2-only selection", () => {
       page([cachedObject("beta.com", 2003)], true, "next3"),
       page([cachedObject("beta.com", 2004)]),
     ]);
-    const result = await findSurprise(store.binding, "", () => 0);
+    const result = await findSurprise(store.binding, "", () => 0, () => true);
     expect(store.calls).toHaveLength(SURPRISE_MAX_PAGES);
     expect(store.calls[1].cursor).toBe("next1");
     expect(store.calls[2].cursor).toBe("next2");
