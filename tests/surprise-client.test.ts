@@ -28,6 +28,8 @@ function page() {
       <h2 id="surprise-title"></h2><p id="surprise-status"></p>
       <div id="surprise-gallery"></div><p id="surprise-caveat"></p>
       <button id="surprise-explore" hidden>Explore this site</button>
+      <button id="surprise-copy-link" hidden>Copy discovery link</button>
+      <a id="surprise-open-link" href="/" hidden>Open shareable page</a>
       <button id="surprise-again">Find another</button>
     </section>
   `;
@@ -63,6 +65,10 @@ describe("Surprise Me browser experience", () => {
     expect(anchors[0].rel).toContain("noreferrer");
     expect(calls.every((url) => url.startsWith("/api/surprise"))).toBe(true);
     expect(window.document.querySelector("#surprise-explore")?.hasAttribute("hidden")).toBe(false);
+    expect(window.document.querySelector("#surprise-copy-link")?.hasAttribute("hidden")).toBe(false);
+    expect(window.document.querySelector("#surprise-open-link")?.getAttribute("href")).toBe(
+      "/discover/yahoo.com/19990102123000/20050102123000",
+    );
   });
 
   it("finds another cached website without immediately repeating the same domain", async () => {
