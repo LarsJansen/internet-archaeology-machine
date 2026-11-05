@@ -87,3 +87,17 @@ body { background: #f4f7fb; color: var(--iam-ink); }
 .owner-access .btn { min-height: 30px; }
 .owner-card { border-left: 4px solid #245cc5; }
 @media (max-width: 650px) { .share-card-actions .d-flex > .btn { width: 100%; } }
+
+/* Phase 5: a browse-first discovery experience based entirely on cached R2 images. */
+.surprise-result { border-color: #bcd3f4; box-shadow: 0 10px 34px rgba(28,79,156,.075); }
+.surprise-result .card-header { background: linear-gradient(110deg, #f7faff, #fff); }
+.surprise-gallery { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 300px), 1fr)); gap: 1rem; }
+.surprise-snapshot { min-width: 0; overflow: hidden; padding: 1rem; }
+.surprise-snapshot h3 { color: var(--iam-blue); font-weight: 800; }
+.surprise-image { display: block; width: 100%; height: auto; aspect-ratio: 1280 / 900; object-fit: contain; background: #edf3fb; border: 1px solid #e0e9f5; border-radius: 6px; margin-bottom: 1rem; }
+.surprise-meta { font-size: .85rem; }
+.surprise-source { display: inline-block; font-weight: 650; font-size: .88rem; }
+@media (max-width: 650px) {
+  #surprise-trigger { width: 100%; }
+  .surprise-result .card-body { padding: 1rem; }
+}

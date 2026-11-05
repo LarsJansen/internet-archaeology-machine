@@ -47,7 +47,7 @@
               <div class="card-body p-4">
                 <div class="d-flex flex-wrap align-items-center justify-content-between gap-2 mb-3">
                   <h2 id="search-heading" class="h3 m-0">Find a website's past</h2>
-                  <span class="badge bg-azure-lt text-azure">From the Wayback Machine</span>
+                  <button id="surprise-trigger" class="btn btn-outline-primary btn-sm" type="button" aria-controls="surprise-result" aria-expanded="false">🎲 Surprise me</button>
                 </div>
                 <form id="search-form" class="search-form">
                   <label class="form-label" for="domain">Website domain or homepage URL</label>
@@ -55,9 +55,28 @@
                     <input class="form-control form-control-lg" id="domain" name="domain" type="text" inputmode="url" autocomplete="url" placeholder="e.g. yahoo.com" required aria-describedby="search-help" />
                     <button class="btn btn-primary btn-lg" type="submit">Explore history</button>
                   </div>
-                  <p id="search-help" class="form-hint mt-2 mb-0">Try yahoo.com, mozilla.org, or a long-forgotten favourite. We'll show years found in the archive.</p>
+                  <p id="search-help" class="form-hint mt-2 mb-0">Try yahoo.com, mozilla.org, or a long-forgotten favourite. Or hit Surprise me for a random saved snapshot.</p>
                 </form>
                 <p id="status" class="search-status mt-3 mb-0" role="status" aria-live="polite">Ready to inspect the archive index.</p>
+              </div>
+            </section>
+
+            <section id="surprise-result" class="card surprise-result mt-4" aria-labelledby="surprise-title" hidden>
+              <div class="card-header d-flex flex-wrap align-items-center justify-content-between gap-2">
+                <div>
+                  <div class="section-kicker">HANDPICKED SITES FROM THE ARCHIVE</div>
+                  <h2 id="surprise-title" class="h2 mt-1 mb-0">A forgotten corner of the web</h2>
+                </div>
+                <span class="badge bg-azure-lt text-azure">Saved snapshots</span>
+              </div>
+              <div class="card-body">
+                <p id="surprise-status" class="lead text-secondary mb-3" role="status" aria-live="polite"></p>
+                <div id="surprise-gallery" class="surprise-gallery"></div>
+                <p id="surprise-caveat" class="text-secondary small mt-3 mb-0"></p>
+                <div class="d-flex flex-wrap gap-2 mt-3">
+                  <button id="surprise-explore" class="btn btn-primary" type="button" hidden>Explore this website's history</button>
+                  <button id="surprise-again" class="btn btn-outline-secondary" type="button">Find another</button>
+                </div>
               </div>
             </section>
 

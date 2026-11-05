@@ -110,3 +110,12 @@ The new production main entry point is `src/worker/entry.ts` so the handler and 
 **Important limitations:** IP-based throttling is a cost guard, not bot-proof authentication. Proxies can share or change IPs. The daily cap is also not a strict browser-minutes cap — an individual request's duration may vary. Keep an eye on Browser Run usage and optionally add Cloudflare Turnstile, WAF rules or stricter limits before promoting the app heavily. Never accept a screenshot URL from visitors; only the CDX-verified replay is rendered.
 
 **Emergency stop:** set `PUBLIC_SCREENSHOTS_ENABLED` to `false` in Wrangler config and redeploy. Cached screenshots and curator actions remain available. Do not remove the Durable Object binding without considering the budget state and in-progress requests.
+
+
+## Phase 5 — Surprise Me smoke test
+
+No new bindings or secrets. `GET /api/surprise` reads the existing `SCREENSHOTS` R2 bucket with `list({ prefix, include: ['customMetadata'] })` and returns one or two **already stored** screenshots from a single domain. The list scan is capped at three pages of 200 objects, with an explicit `inventoryPartial` flag when more objects are available. Screenshots without valid provenance metadata are skipped. The endpoint never calls CDX, Browser Run or the Durable Object quota coordinator. Only domains listed on the handpicked shortlist in `src/worker/surprise.ts` are eligible; visitor-generated screenshots for other domains are not automatically promoted to the featured collection.
+
+After deployment, click **Surprise me** on the public homepage. Confirm it shows real saved images and exact archive timestamps, source links open Wayback, **Find another** changes the domain when alternatives are available, and **Explore this website's history** starts a regular site search. A collection with only one cached year should show just one panel. Empty collection returns a helpful `404 SURPRISE_EMPTY` rather than fabricated history. Check browser Network: `/api/surprise` and cached image GETs are allowed; there should be no `/api/screenshot/request` or Browser Run requests.
+
+R2 object listing consumes Class A operations, so this version is intended for a modest-sized cache. If the collection becomes large or popular, add a curated indexed discovery manifest or a separate metadata index before increasing the pagination bound.

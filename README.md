@@ -1,17 +1,18 @@
 # Internet Archaeology Machine
 
-Internet Archaeology Machine (IAM) is a free, open-source experiment for exploring surviving homepage captures in the Internet Archive. It is a curiosity tool, not a SaaS product and not an archive of its own.
+Internet Archaeology Machine (IAM) is a free, open-source way to explore surviving website captures from the Internet Archive, compare historic snapshots and share what you discover. IAM does not operate its own web archive.
 
-The application uses a Tabler-styled Vite/TypeScript interface and Cloudflare Worker with an on-demand historical year explorer. It checks only the year a visitor selects, compares up to two verified archive entry points, and can show two owner-gated screenshots side by side.
+The application uses a Tabler-styled Vite/TypeScript interface and Cloudflare Worker with an indexed-year explorer. Visitors can view cached snapshots, request missing images within strict daily limits, and explore real saved discoveries with Surprise Me.
 
 ## What works
 
 - A responsive, keyboard-friendly year explorer that lists only years with matching indexed homepage captures, with explicit empty, loading, success, and upstream-error states.
 - A two-capture metadata comparison with safe replay links and replaceable, session-cached year selections.
-- Persistent screenshot storage in Cloudflare R2. Public visitors automatically see previously saved PNGs; only owners may generate new images. Owner generation re-verifies the capture and checks R2 first to avoid repeat Browser Run charges. The screenshot action hides Wayback's own toolbar using a scoped CSS rule.
+- Persistent screenshot storage in Cloudflare R2. Public visitors automatically see previously saved PNGs, and may request missing snapshots within strict per-visitor and site-wide limits. All generation re-verifies the archive capture and checks R2 first to avoid repeat Browser Run charges.
 - Tabler-based responsive light UI (CSS pinned to @tabler/core 1.7.1 on jsDelivr). Visitors can download a 1600×1100 shareable comparison PNG from two loaded screenshots and copy exact Wayback source links. Export runs entirely in the browser, never calling Browser Run.
-- Curator-only generation uses a seven-day, HMAC-signed `Secure`, `HttpOnly`, `SameSite=Strict` session cookie, rather than requiring the owner token for every screenshot. Public visitors never see the generation controls. The original secret remains in Cloudflare and is sent once to log in, not stored in browser-accessible storage.
+- Curator access uses a seven-day, HMAC-signed `Secure`, `HttpOnly`, `SameSite=Strict` session cookie, rather than requiring the owner token for every screenshot. Public visitors never see the generation controls. The original secret remains in Cloudflare and is sent once to log in, not stored in browser-accessible storage.
 - `GET /api/health` for a local/deployed health check.
+- `GET /api/surprise` to discover one or two actually saved Wayback screenshots from R2; this endpoint does not call the Internet Archive or Browser Run.
 - `GET /api/captures?domain=example.com` for a bounded Internet Archive CDX query.
 - `GET /api/captures?domain=example.com&year=2002` for at most one capture from one selected year.
 - `GET /api/years?domain=example.com` for a bounded CDX-derived list of indexed homepage years (not a complete history guarantee).
@@ -19,7 +20,7 @@ The application uses a Tabler-styled Vite/TypeScript interface and Cloudflare Wo
 - Explicit handling for rate limits, timeouts, malformed archive data, and general upstream failures.
 - Deterministic Vitest coverage using a clearly labelled real-shape fixture. Fixture records are never returned by the live API.
 
-The year selector lists only years returned by one bounded CDX query using `collapse=timestamp:4`; each chosen year is verified again before comparison. The index can be incomplete, so missing years do not prove the site was offline. The browser never fans out across decades. The comparison covers verified archive metadata and replay entry points for everyone. The screenshot comparison is an optional owner-only action, with one Browser Run request per image and in-tab reuse to conserve the free-tier quota. Wayback may redirect the replay to a different archived year even when CDX verifies a capture in the requested year; user-facing screenshot captions therefore identify the *requested* year rather than claiming the final rendered content is necessarily from it. The original Wayback link remains available for provenance.
+The year selector lists only years returned by one bounded CDX query using `collapse=timestamp:4`; each chosen year is verified again before comparison. The index can be incomplete, so missing years do not prove the site was offline. The browser never fans out across decades. The comparison covers verified archive metadata and replay entry points for everyone. New screenshots are opt-in, limited public requests with one Browser Run request per uncached image. Cached images and in-tab reuse avoid repeat render work. Wayback may redirect the replay to a different archived year even when CDX verifies a capture in the requested year; user-facing screenshot captions therefore identify the *requested* year rather than claiming the final rendered content is necessarily from it. The original Wayback link remains available for provenance.
 
 ## Local setup
 
@@ -84,3 +85,10 @@ Visitors may request missing images via `POST /api/screenshot/request`, supplyin
 The initial hard limits are 6 public attempts per UTC day across the whole site, and 2 per visitor per UTC day. Per-visitor state is keyed to an HMAC fingerprint of Cloudflare's trusted client IP, not a browser-controlled token. The Durable Object serialises admissions and persists counters and leases across restarts. Failed renders also count toward limits. The global coordinator does *not* receive cache hits or ordinary archive browsing; when budget infrastructure is missing, new generation fails closed. Owner generation shares the global lock but bypasses public daily limits.
 
 The binding `SCREENSHOT_BUDGET` and SQLite class `ScreenshotBudget` are declared using Wrangler's `exports` lifecycle configuration. `PUBLIC_SCREENSHOTS_ENABLED` is explicitly set to `true` in `wrangler.jsonc`; change to `false` to pause new public captures without interrupting cached screenshot reads. See [deployment](docs/DEPLOYMENT.md) for rollout and limitations.
+
+
+## Phase 5 — Surprise Me
+
+Click **Surprise me** beside the search form to discover a random website with screenshots already saved in Cloudflare R2. Only domains on the handpicked (not screenshot-reviewed) editorial shortlist in `src/worker/surprise.ts` are eligible; listing a domain does not assert any capture exists. When the collection contains two distinct cached years for an approved domain, IAM shows a two-image comparison. Otherwise, it shows the single genuine saved image rather than inventing a second year. **Find another** avoids the last domain when an alternative is available, and **Explore this website's history** opens its indexed-year timeline.
+
+The public endpoint `GET /api/surprise` uses only R2 object listing with custom metadata, capped at three pages of 200 items. It makes **no** CDX lookups, does **not** invoke Browser Run, does not write to R2 and consumes **none** of the public screenshot-generation allowance. Entries include exact capture timestamps and Wayback replay links. The listing is a bounded, lexicographically ordered sample; when the cache grows, a separate discovery index or curated catalogue will be preferable to avoid overrepresenting early domains. No extra Cloudflare infrastructure is required.
