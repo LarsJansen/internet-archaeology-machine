@@ -151,7 +151,7 @@ export async function handleRequest(
       if (!discovery) {
         return errorResponse(
           "SURPRISE_EMPTY",
-          "There aren't any saved snapshots to discover yet. Explore a website to start the collection.",
+          "Our featured collection is still growing. Try searching for a website in the meantime.",
           404,
         );
       }
