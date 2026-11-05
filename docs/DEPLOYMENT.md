@@ -119,3 +119,17 @@ No new bindings or secrets. `GET /api/surprise` reads the existing `SCREENSHOTS`
 After deployment, click **Surprise me** on the public homepage. Confirm it shows real saved images and exact archive timestamps, source links open Wayback, **Find another** changes the domain when alternatives are available, and **Explore this website's history** starts a regular site search. A collection with only one cached year should show just one panel. Empty collection returns a helpful `404 SURPRISE_EMPTY` rather than fabricated history. Check browser Network: `/api/surprise` and cached image GETs are allowed; there should be no `/api/screenshot/request` or Browser Run requests.
 
 R2 object listing consumes Class A operations, so this version is intended for a modest-sized cache. If the collection becomes large or popular, add a curated indexed discovery manifest or a separate metadata index before increasing the pagination bound.
+\n
+## Phase 6 — Public discovery links and social previews
+
+The `ASSETS` binding has been added to the existing Worker so only `/discover/*` URLs (in addition to `/api/*`) are handled by the Worker first. The Worker verifies the selected R2 object metadata using `head` and fetches the built homepage shell from `ASSETS.fetch("/")` to inject canonical, `og:title`, `og:description`, `og:image`, `og:url` and `twitter:card=summary_large_image` before returning HTML. All other built static assets continue to be served directly by Cloudflare. **No new R2 bucket, secrets, paid image transformation or migration is needed.**
+
+### Smoke test
+
+1. Select two years with saved screenshots and use **Copy comparison link** or **Open shareable page**. Confirm the address is `/discover/<domain>/<14-digit-timestamp>/<14-digit-timestamp>` and reloading it reproduces both exact images without a new CDX query or screenshot-generation POST.
+2. Click **Surprise me**, then **Open shareable page**. A website with only one cached image should have a single-capture permalink, not a blank comparison panel.
+3. Inspect the HTML source of a valid `/discover/` page (not only its browser DOM). Confirm it contains the two years, a canonical URL and Open Graph and Twitter metadata. The preview image URL should be a public `/api/screenshot` GET that returns `image/png`; social crawlers do not run JavaScript. X may cache older previews.
+4. Check a fabricated timestamp or a deleted image: the permalink must return 404 and never substitute another year's screenshot. Shared-image reads and metadata probes must not contact Wayback CDX or Browser Run.
+5. Verify the homepage, existing `/api/health`, R2 cache, public screenshot generation and curator login still work.
+
+The current preview is deliberately one exact cached screenshot rather than a generated composite. That avoids public image-transformation costs. A later curated composite image can be added as a separate, cacheable artifact. R2 currently keys screenshots to the `toolbarless-v1-1280x900` variant; keep legacy variants reachable before changing that policy to avoid breaking shared links.
