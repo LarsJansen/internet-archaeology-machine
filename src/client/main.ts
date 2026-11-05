@@ -2,6 +2,8 @@ import type { ApiErrorResponse, Capture, CapturesResponse, YearsResponse } from 
 import "./styles.css";
 import { discoverySources, renderDiscoveryCard } from "./discovery-card";
 import { initSurprise } from "./surprise";
+import { initSharedDiscovery } from "./shared-discovery";
+import { buildDiscoveryPath } from "../shared/discovery-link";
 
 const MONTHS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
 
@@ -121,6 +123,8 @@ export function initSearch(document: Document, fetchImpl: typeof fetch = fetch):
   const shareActions = document.querySelector<HTMLElement>("#share-card-actions");
   const downloadDiscovery = document.querySelector<HTMLButtonElement>("#download-discovery");
   const copyDiscoverySources = document.querySelector<HTMLButtonElement>("#copy-discovery-sources");
+  const copyDiscoveryLink = document.querySelector<HTMLButtonElement>("#copy-discovery-link");
+  const openDiscoveryLink = document.querySelector<HTMLAnchorElement>("#open-discovery-link");
   const screenshotResult = document.querySelector<HTMLElement>("#screenshot-result");
   const screenshotCaption = document.querySelector<HTMLElement>("#screenshot-caption");
   const screenshotImage = document.querySelector<HTMLImageElement>("#screenshot-image");
@@ -342,6 +346,31 @@ export function initSearch(document: Document, fetchImpl: typeof fetch = fetch):
     }
   });
 
+  copyDiscoveryLink?.addEventListener("click", () => {
+    if (comparedCaptures.length !== 2 ||
+        !comparedCaptures.every(({ year }) => screenshotObjectUrls.has(year))) return;
+    let link: string;
+    try {
+      const path = buildDiscoveryPath(
+        canonicalDomain || activeDomain,
+        comparedCaptures.map(({ capture }) => capture.timestamp),
+      );
+      link = new URL(path, document.location?.origin ?? "https://iam.test").href;
+    } catch {
+      status.textContent = "These captures cannot be shared yet.";
+      return;
+    }
+    const clipboard = document.defaultView?.navigator.clipboard;
+    if (!clipboard?.writeText) {
+      status.textContent = "Open the shareable page and copy its URL from the address bar.";
+      return;
+    }
+    void clipboard.writeText(link).then(
+      () => { status.textContent = "Comparison link copied — it opens these exact saved screenshots."; },
+      () => { status.textContent = "Open the shareable page and copy its URL from the address bar."; },
+    );
+  });
+
   // Public cache reads are safe: no owner secret and no Browser Run request.
   // The archive capture timestamp prevents different replays in the same year colliding.
   const loadCachedScreenshot = async (year: number, capture: Capture, domain: string) => {
@@ -443,6 +472,21 @@ export function initSearch(document: Document, fetchImpl: typeof fetch = fetch):
     renderScreenshots(domain);
     if (shareActions) shareActions.hidden = comparedCaptures.length !== 2;
     if (downloadDiscovery) downloadDiscovery.disabled = exportEntries() === null;
+    const shareable = comparedCaptures.length === 2 &&
+      comparedCaptures.every(({ year }) => screenshotObjectUrls.has(year));
+    if (copyDiscoveryLink) copyDiscoveryLink.disabled = !shareable;
+    if (openDiscoveryLink) {
+      openDiscoveryLink.hidden = !shareable;
+      if (shareable) {
+        try {
+          openDiscoveryLink.href = buildDiscoveryPath(canonicalDomain || activeDomain,
+            comparedCaptures.map(({ capture }) => capture.timestamp));
+        } catch {
+          openDiscoveryLink.hidden = true;
+          if (copyDiscoveryLink) copyDiscoveryLink.disabled = true;
+        }
+      }
+    }
   };
 
   const addToComparison = (year: number, capture: Capture, domain: string) => {
@@ -606,4 +650,5 @@ export function initSearch(document: Document, fetchImpl: typeof fetch = fetch):
 if (typeof document !== "undefined") {
   initSearch(document);
   initSurprise(document);
+  initSharedDiscovery(document);
 }
