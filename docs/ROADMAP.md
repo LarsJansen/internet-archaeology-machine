@@ -80,3 +80,17 @@ Curated examples, discovery collections, richer shareable investigation URLs and
 - Preserve a clear disclaimer that replay content may differ from the requested archive date.
 - No automatic crawling or mass screenshot generation.
 
+\n
+## Phase 6 — Shareable discovery URLs
+
+- Canonical one- or two-capture `/discover/<domain>/<timestamp>[/<timestamp>]` links backed by exact persisted R2 objects, not whichever records the archive returns later.
+- Server-rendered Open Graph/Twitter Card metadata with a real saved preview image for social crawlers.
+- Landing gallery with exact archive dates, original Wayback links, copy URL and explore-site actions.
+- Copy/open share controls for regular comparisons and Surprise Me, enabled only when saved images exist.
+- No new Browser Run, CDX or screenshot quota usage when opening or previewing shared discoveries.
+
+## Next
+
+- Curated Internet Museum collections, discovery provenance reviews, a proper cached metadata index as the R2 collection grows.
+- Composite 1600×1100 PNG as the social preview itself (currently the preview uses the first stored screenshot).
+- Preserve old screenshot renderer variants before changing the R2 key policy.

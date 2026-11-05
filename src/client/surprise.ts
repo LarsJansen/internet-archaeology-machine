@@ -1,3 +1,5 @@
+import { buildDiscoveryPath } from "../shared/discovery-link";
+
 interface SurpriseCapture {
   year: number;
   timestamp: string;
@@ -69,6 +71,8 @@ export function initSurprise(document: Document, fetchImpl: typeof fetch = fetch
   const caveat = document.querySelector<HTMLElement>("#surprise-caveat");
   const again = document.querySelector<HTMLButtonElement>("#surprise-again");
   const explore = document.querySelector<HTMLButtonElement>("#surprise-explore");
+  const copy = document.querySelector<HTMLButtonElement>("#surprise-copy-link");
+  const sharePage = document.querySelector<HTMLAnchorElement>("#surprise-open-link");
   const domainInput = document.querySelector<HTMLInputElement>("#domain");
   const form = document.querySelector<HTMLFormElement>("#search-form");
   const searchCard = document.querySelector<HTMLElement>(".search-card");
@@ -78,10 +82,17 @@ export function initSurprise(document: Document, fetchImpl: typeof fetch = fetch
   let pending = false;
   let lastDomain = "";
   let selectedDomain = "";
+  let currentSharePath = "";
 
   const showDiscovery = (result: SurpriseResponse): void => {
     selectedDomain = result.domain;
     lastDomain = result.domain;
+    currentSharePath = buildDiscoveryPath(result.domain, result.captures.map((capture) => capture.timestamp));
+    if (copy) copy.hidden = false;
+    if (sharePage) {
+      sharePage.href = currentSharePath;
+      sharePage.hidden = false;
+    }
     title.textContent = result.domain;
     gallery.replaceChildren();
 
@@ -129,6 +140,9 @@ export function initSurprise(document: Document, fetchImpl: typeof fetch = fetch
     if (pending) return;
     pending = true;
     selectedDomain = "";
+    currentSharePath = "";
+    if (copy) copy.hidden = true;
+    if (sharePage) sharePage.hidden = true;
     trigger.disabled = true;
     again.disabled = true;
     panel.hidden = false;
@@ -162,6 +176,20 @@ export function initSurprise(document: Document, fetchImpl: typeof fetch = fetch
 
   trigger.addEventListener("click", () => { void discover(); });
   again.addEventListener("click", () => { void discover(); });
+  copy?.addEventListener("click", () => {
+    if (!currentSharePath) return;
+    const url = new URL(currentSharePath, document.location?.origin ?? "https://iam.test").href;
+    const clipboard = document.defaultView?.navigator.clipboard;
+    if (!clipboard?.writeText) {
+      status.textContent = "Open the shareable page and copy the address from your browser.";
+      return;
+    }
+    void clipboard.writeText(url).then(
+      () => { status.textContent = "Saved discovery link copied. Anyone can open these exact snapshots."; },
+      () => { status.textContent = "Open the shareable page and copy the address from your browser."; },
+    );
+  });
+
   explore.addEventListener("click", () => {
     if (!selectedDomain) return;
     domainInput.value = selectedDomain;

@@ -39,9 +39,9 @@ export interface SurpriseDiscovery {
   limitation: string;
 }
 
-type StoredCapture = { domain: string; year: number; timestamp: string; replayUrl: string };
+export type StoredCapture = { domain: string; year: number; timestamp: string; replayUrl: string };
 
-function storedCapture(object: R2Object): StoredCapture | null {
+export function storedCapture(object: R2Object): StoredCapture | null {
   const match = /^screenshots\/[^/]+\/([^/]+)\/(\d{14})\.png$/.exec(object.key);
   if (!match || !object.key.startsWith(IMAGE_PREFIX)) return null;
 

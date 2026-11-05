@@ -5,6 +5,8 @@ import { screenshotImage, screenshotKey, screenshotMetadata } from "./screenshot
 import { createOwnerSession, verifyOwnerSession, ownerSessionCookie, clearOwnerSessionCookie, hasValidRequestOrigin } from "./owner-session";
 import type { ScreenshotBudget } from "./screenshot-budget";
 import { findSurprise } from "./surprise";
+import { getSavedDiscovery, renderDiscoveryHtml } from "./discovery";
+import { isValidDiscoveryRoute, parseDiscoveryPath } from "../shared/discovery-link";
 
 const ARCHIVE_LIMITATION =
   "Results are a small sample of surviving indexed homepage captures. Gaps do not prove the site was offline.";
@@ -14,6 +16,7 @@ export interface Env {
   BROWSER: BrowserRun;
   SCREENSHOT_ACCESS_TOKEN?: string;
   SCREENSHOTS?: R2Bucket;
+  ASSETS?: Fetcher;
   SCREENSHOT_BUDGET?: DurableObjectNamespace<ScreenshotBudget>;
   PUBLIC_SCREENSHOTS_ENABLED?: string;
 }
@@ -105,6 +108,61 @@ export async function handleRequest(
   env: Partial<Env> = {},
 ): Promise<Response> {
   const url = new URL(request.url);
+
+  // Deep links must return actual HTML + OG tags to social crawlers. The
+  // content comes only from R2 HEAD metadata, never from CDX or Browser Run.
+  if (url.pathname.startsWith("/discover/")) {
+    if (request.method !== "GET" && request.method !== "HEAD") {
+      return new Response("Method not allowed.", { status: 405, headers: { Allow: "GET, HEAD" } });
+    }
+    const route = parseDiscoveryPath(url.pathname);
+    if (!route) return new Response("This discovery link is invalid.", {
+      status: 404, headers: { "Content-Type": "text/plain; charset=utf-8", "Cache-Control": "no-store" },
+    });
+    const domain = normalizeDomain(route.domain);
+    if (!domain.ok || domain.domain !== route.domain) return new Response("This discovery link is invalid.", {
+      status: 404, headers: { "Content-Type": "text/plain; charset=utf-8", "Cache-Control": "no-store" },
+    });
+    if (!env.SCREENSHOTS || !env.ASSETS) return new Response("The discovery page is temporarily unavailable.", {
+      status: 503, headers: { "Content-Type": "text/plain; charset=utf-8", "Cache-Control": "no-store" },
+    });
+    try {
+      const discovery = await getSavedDiscovery(env.SCREENSHOTS, route);
+      if (!discovery) return new Response("This saved discovery isn't available. Search for the website on the homepage.", {
+        status: 404, headers: { "Content-Type": "text/plain; charset=utf-8", "Cache-Control": "no-store" },
+      });
+      const html = await renderDiscoveryHtml(request, env.ASSETS, discovery);
+      return request.method === "HEAD" ? new Response(null, { status: html.status, headers: html.headers }) : html;
+    } catch {
+      return new Response("The discovery page is temporarily unavailable.", {
+        status: 503, headers: { "Content-Type": "text/plain; charset=utf-8", "Cache-Control": "no-store" },
+      });
+    }
+  }
+
+  if (url.pathname === "/api/discovery") {
+    if (request.method !== "GET") {
+      return errorResponse("METHOD_NOT_ALLOWED", "Only GET is supported.", 405, { Allow: "GET" });
+    }
+    const route = {
+      domain: url.searchParams.get("domain") ?? "",
+      timestamps: url.searchParams.getAll("timestamp"),
+    };
+    const domain = normalizeDomain(route.domain);
+    if (!domain.ok || domain.domain !== route.domain ||
+        !isValidDiscoveryRoute(route.domain, route.timestamps) ||
+        [...route.timestamps].sort().join(",") !== route.timestamps.join(",")) {
+      return errorResponse("INVALID_DISCOVERY_LINK", "Provide a valid website and one or two saved capture timestamps.", 400);
+    }
+    if (!env.SCREENSHOTS) return errorResponse("DISCOVERY_UNAVAILABLE", "Saved discoveries are temporarily unavailable.", 503);
+    try {
+      const discovery = await getSavedDiscovery(env.SCREENSHOTS, route);
+      if (!discovery) return errorResponse("DISCOVERY_NOT_FOUND", "The saved screenshots for this link are not available.", 404);
+      return json(discovery, { headers: { "Cache-Control": "public, max-age=60, s-maxage=300" } });
+    } catch {
+      return errorResponse("DISCOVERY_UNAVAILABLE", "Saved discoveries are temporarily unavailable.", 503);
+    }
+  }
 
   if (url.pathname === "/api/owner/session") {
     if (request.method !== "GET") return errorResponse("METHOD_NOT_ALLOWED", "Only GET is supported.", 405);
