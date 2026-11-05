@@ -7,9 +7,9 @@ const IMAGE_PREFIX = `screenshots/${SCREENSHOT_VARIANT}/`;
 export const SURPRISE_PAGE_SIZE = 200;
 export const SURPRISE_MAX_PAGES = 3;
 
-// An intentionally small editorial shortlist, not a claim that these sites
-// have archived captures. A site appears only when its image is already in R2.
-// Add new domains after reviewing their public archive content.
+// An intentionally small handpicked domain shortlist, not an assertion that
+// each website has an archived capture or that every screenshot was reviewed.
+// A site appears only when its image is already in R2. Add entries cautiously.
 export const FEATURED_DOMAINS = new Set([
   "yahoo.com", "google.com", "mozilla.org", "apple.com", "microsoft.com",
   "netscape.com", "aol.com", "altavista.com", "amazon.com", "ebay.com",
@@ -151,6 +151,6 @@ export async function findSurprise(
     captures: selected.map(toPublicCapture),
     inventoryPartial: partial,
     source: "r2-cached-screenshots",
-    limitation: "This discovery is selected from approved sites with saved Wayback screenshots. Archived pages can redirect or load later resources; capture timestamps describe the archive records, not independently verified render dates.",
+    limitation: "This discovery uses a handpicked website list and saved Wayback screenshots; individual images are not manually reviewed. Replays may redirect or load later resources, so capture timestamps are not independently verified render dates.",
   };
 }
